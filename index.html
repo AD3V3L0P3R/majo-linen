@@ -205,7 +205,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-  var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp'];
+  var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp','getDashboard'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -287,22 +287,47 @@ function tot(p,item){return ST.reduce(function(s,st){return s+(((inv[p]||{})[ite
 function cnt(p,st){return ITEMS.reduce(function(s,i){return s+(((inv[p]||{})[i]||{})[st]||0);},0);}
 function render(){if(!view)return;if(role==='admin'){if(view==='dash')renderDash();else if(view==='checkin')renderCheckin();else if(view==='manual')renderManual();else if(view==='setup')renderSetup();}else if(role==='cleaner')renderCleaner();else if(role==='runner')renderRunner();else if(role==='lavanderia'){if(view==='incassi')doIncassi();else renderLav();}}
 function renderDash(){
-  var p=prop,pi=PI[p];
-  var disp=cnt(p,'Disponibile'),sp=cnt(p,'Sporco'),lv=cnt(p,'In lavanderia'),pr=cnt(p,'Pronto per ritiro'),tt=disp+sp+lv+pr;
-  function acc(item){var d=(inv[p]||{})[item]||{};return(d['Sporco']||0)>0?'#C81818':(d['Pronto per ritiro']||0)>0?'#B8711C':(d['In lavanderia']||0)>0?'#6B52A0':'#1F7A4A';}
   var h='<div class="pg">';
-  h+='<div class="kpi-main"><div><div class="km-lbl">Disponibile ora</div><div class="km-num">'+disp+'</div></div><div class="km-r"><div class="km-addr">'+pi.addr+'</div><div class="km-name">'+pi.name+'</div></div></div>';
-  h+='<div class="kpi-row"><div class="kc sp"><div class="kc-num">'+sp+'</div><div class="kc-lbl">Sporco</div></div><div class="kc lv"><div class="kc-num">'+lv+'</div><div class="kc-lbl">Lavanderia</div></div></div>';
-  h+='<div class="kpi-row"><div class="kc pr"><div class="kc-num">'+pr+'</div><div class="kc-lbl">Pronto ritiro</div></div><div class="kc tt"><div class="kc-num">'+tt+'</div><div class="kc-lbl">Totale pezzi</div></div></div>';
-  h+=sp>0?'<div class="chip warn">&#9888; '+sp+' pezzi sporchi</div>':pr>0?'<div class="chip info">&#128230; '+pr+' pronti</div>':'<div class="chip ok">&#10004; Tutto ok</div>';
-  h+='<span class="slbl">Inventario dettagliato</span>';
-  ITEMS.forEach(function(item){
-    var d=(inv[p]||{})[item]||{},t=tot(p,item),a=acc(item),dv=d['Disponibile']||0;
-    var bars=ST.map(function(st){var pc=t>0?(d[st]||0)/t*100:0;return '<div class="ic-seg" style="background:'+SC[st][0]+';width:'+pc+'%"></div>';}).join('');
-    var pills=ST.filter(function(st){return(d[st]||0)>0;}).map(function(st){return '<span class="ic-pill" style="background:'+SC[st][1]+';color:'+SC[st][0]+'">'+d[st]+' '+st+'</span>';}).join('');
-    h+='<div class="ic"><div class="ic-acc" style="background:'+a+'"></div><div class="ic-body"><div class="ic-top"><span class="ic-name">'+item+'</span><span class="ic-av" style="color:'+a+'">'+dv+'</span><span class="ic-tot">/ '+t+'</span></div><div class="ic-bar">'+bars+'</div><div class="ic-pills">'+(pills||'<span class="ic-pill" style="background:#f0f0f0;color:#aaa">0 pezzi</span>')+'</div></div></div>';
-  });
+  ['Majo','Nievo'].forEach(function(p){h+=dashHouseCard(p);});
+  h+='<div id="dashx"><div class="loading" style="padding:16px 0"><span class="spin"></span>Aggiornamento...</div></div>';
   h+='</div>';rc(h);
+  google.script.run.withSuccessHandler(function(d){var el=document.getElementById('dashx');if(el)el.innerHTML=dashExtra(d);}).withFailureHandler(function(){var el=document.getElementById('dashx');if(el)el.innerHTML='<div class="le">Costi e attivit&agrave; non disponibili ora.<br><br><button class="cfbtn on" onclick="renderDash()">Riprova</button></div>';}).getDashboard();
+}
+function dashHouseCard(p){
+  var pi=PI[p],c=checkinCapacity(p);
+  var disp=cnt(p,'Disponibile'),sp=cnt(p,'Sporco'),lv=cnt(p,'In lavanderia'),pr=cnt(p,'Pronto per ritiro');
+  var col=c.possibili>=2?'var(--green)':(c.possibili===1?'var(--orange)':'var(--red)');
+  var h='<div onclick="goTo(\'checkin\')" style="background:var(--dk);border-radius:var(--r);padding:16px;margin-bottom:8px;cursor:pointer">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;min-width:0"><img src="'+PHOTOS[p]+'" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0"><div style="min-width:0"><div class="km-name">'+pi.name+'</div><div class="km-addr">'+pi.addr+'</div></div></div>';
+  h+='<div style="text-align:right;flex-shrink:0"><div class="km-lbl">Check-in possibili</div><div class="km-num" style="color:'+col+';font-size:30px;line-height:1.1">'+c.possibili+'</div></div></div>';
+  var cells=[['Disponibile','Disp.',disp],['Sporco','Sporco',sp],['In lavanderia','Lavand.',lv],['Pronto per ritiro','Pronto',pr]];
+  h+='<div style="display:flex;gap:6px;margin-top:12px">';
+  cells.forEach(function(x){h+='<div style="flex:1;background:rgba(255,255,255,.07);border-radius:8px;padding:7px 4px;text-align:center"><div style="font-weight:700;font-size:16px;color:'+SC[x[0]][0]+';filter:brightness(1.6)">'+x[2]+'</div><div style="font-size:9px;color:var(--gray);letter-spacing:.04em;text-transform:uppercase;margin-top:1px">'+x[1]+'</div></div>';});
+  h+='</div>';
+  if(c.possibili===0&&c.mancanti&&c.mancanti.length){
+    h+='<div style="margin-top:10px;background:rgba(200,24,24,.15);border-radius:8px;padding:8px 12px;font-size:12px;color:#F2A0A0">Per il 1&deg; check-in mancano: '+c.mancanti.slice(0,4).map(function(m){return m.item+' +'+m.short;}).join(' &middot; ')+'</div>';
+  }
+  h+='</div>';return h;
+}
+function daysAgo(ts){var m=/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(String(ts||''));if(!m)return null;var dt=new Date(+m[3],+m[2]-1,+m[1],+m[4],+m[5]);return Math.floor((Date.now()-dt.getTime())/864e5);}
+function dashExtra(d){
+  d=d||{};var due=d.due||{total:0,byHouse:{}};var ops=d.ops||[];
+  var bm=Number(((due.byHouse||{}).Majo||{}).due)||0,bn=Number(((due.byHouse||{}).Nievo||{}).due)||0;
+  var h='<div onclick="goTo(\'costs\')" style="background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">';
+  h+='<div><div style="font-weight:700;font-size:14px">Da saldare a Said</div><div style="font-size:12px;color:var(--gray);margin-top:2px">Majo &euro;'+bm.toFixed(2)+' &middot; Nievo &euro;'+bn.toFixed(2)+'</div></div>';
+  h+='<div style="font-weight:700;font-size:20px;color:var(--purple)">&euro;'+(Number(due.total)||0).toFixed(2)+'</div></div>';
+  var warn=[],ric=0,ann=0;
+  ops.forEach(function(op){var g=daysAgo(op.ts);if(g===null||g>7)return;if(op.kind!=='undo'&&(op.notes||[]).some(function(n){return /RICONCILIATO/i.test(n);}))ric++;if(op.undone)ann++;});
+  if(ric)warn.push(ric+(ric===1?' operazione con conteggi riallineati':' operazioni con conteggi riallineati'));
+  if(ann)warn.push(ann+(ann===1?' operazione annullata':' operazioni annullate'));
+  ['Majo','Nievo'].forEach(function(p){var lv=cnt(p,'In lavanderia');if(lv>0){var g=daysAgo((d.lavMove||{})[p]);if(g!==null&&g>=4)warn.push(p+': '+lv+' pezzi in lavanderia fermi da '+g+' giorni');}});
+  if(warn.length){h+='<div style="background:var(--red-lt);border-radius:var(--r);padding:12px 14px;margin-bottom:8px"><div style="font-weight:700;color:var(--red);font-size:13px;margin-bottom:4px">Da tenere d\'occhio (ultimi 7 giorni)</div>';warn.forEach(function(w){h+='<div style="font-size:13px;padding:2px 0">&bull; '+w+'</div>';});h+='</div>';}
+  else h+='<div class="chip ok" style="margin-bottom:8px">&#10004; Nessuna criticit&agrave; negli ultimi 7 giorni</div>';
+  h+='<span class="slbl">Ultime operazioni</span>';
+  if(!ops.length)h+='<div class="le">Nessuna operazione registrata</div>';
+  ops.slice(0,3).forEach(function(op){h+='<div onclick="goTo(\'log\')" style="background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:6px;cursor:pointer"><div style="font-weight:700;font-size:13px">'+opTitle(op)+(op.undone?' <span style="font-size:10px;color:var(--gray)">(annullata)</span>':'')+'</div><div class="lm" style="margin-top:2px">'+((op.prop&&op.prop!=='\u2014')?op.prop+' \u00b7 ':'')+op.ts+'</div></div>';});
+  return h;
 }
 function checkinCapacity(p){
   var min=MIN_CHECKIN[p]||{},rigid=[],rigidCap=Infinity;
