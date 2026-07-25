@@ -519,11 +519,11 @@ function chL(p,idx,delta){tap(function(){var item=ITEMS[idx],mq=tot(p,item);lq[p
 function updLav(p){
   var lt=ITEMS.reduce(function(s,i){return s+(lq[p+i]||0);},0),rc2=ITEMS.reduce(function(s,i){return s+(lq[p+i]||0)*(COSTS[i]||0);},0);
   var rp=document.getElementById('rp'+p),ra=document.getElementById('ra'+p),btn=document.getElementById('lbtn'+p);
-  if(rp)rp.textContent=lt+' pezzi';if(ra)ra.textContent='&euro;'+rc2.toFixed(2);
+  if(rp)rp.textContent=lt+' pezzi';if(ra)ra.textContent='\u20AC'+rc2.toFixed(2);
   if(btn){btn.className='cfbtn '+(lt>0?'on':'off');btn.textContent=lt>0?'Conferma '+lt+' pezzi - '+PI[p].name:'Nessun pezzo per '+PI[p].name;}
   var tp=0,te=0;['Majo','Nievo'].forEach(function(pp){tp+=ITEMS.reduce(function(s,i){return s+(lq[pp+i]||0);},0);te+=ITEMS.reduce(function(s,i){return s+(lq[pp+i]||0)*(COSTS[i]||0);},0);});
   var sp=document.getElementById('said-pezzi'),se=document.getElementById('said-euro');
-  if(sp)sp.textContent=tp;if(se)se.textContent='&euro;'+te.toFixed(2);
+  if(sp)sp.textContent=tp;if(se)se.textContent='\u20AC'+te.toFixed(2);
 }
 function confLav(p){
   var items=ITEMS.map(function(item){return {item:item,qty:lq[p+item]||0};}).filter(function(i){return i.qty>0;});
