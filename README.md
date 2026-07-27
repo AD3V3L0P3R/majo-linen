@@ -1,1 +1,2 @@
 # majo-linen
+Deploy
