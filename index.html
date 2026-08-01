@@ -205,7 +205,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp',,'addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration'];
+var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -586,7 +586,7 @@ function doSettle(prop,role){closeModal();rc('<div class="loading"><span class="
 function askUndoSettle(id,role,amount,label){openConfirm('Annullare l\'ultimo saldo?','Riporti a "da saldare" le voci dell\'ultimo saldo registrato: &euro;'+(Number(amount)||0).toFixed(2)+(label?' ('+label+')':'')+'. Vuoi procedere?','Annulla saldo',"doUndoSettle('"+id+"','"+role+"')");}
 function doUndoSettle(id,role){closeModal();rc('<div class="loading"><span class="spin"></span>Annullando il saldo...</div>');google.script.run.withSuccessHandler(function(r){(r&&r.ok)?toast('Saldo annullato'):toast((r&&r.error)||'Errore','err');if(role==='lavanderia')doIncassi();else doCosts();}).withFailureHandler(function(){toast('Errore','err');doCosts();}).undoSettle(id,role);}
 function toast(msg,type){type=type||'ok';var t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;setTimeout(function(){t.className='';},2800);}
-</script>
+
 /* ══════════════════════════════════════════════════════════════
    COSTI FORNITORI — blocco da incollare in index.html
    subito PRIMA della riga di chiusura </script> finale.
@@ -904,5 +904,6 @@ function cfHtmlReport() {
 
   return h;
 }
+</script>
 </body>
 </html>
