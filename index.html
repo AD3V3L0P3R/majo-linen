@@ -205,7 +205,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp','moveDeclaration'];
+var FNS=['checkPassword','getInventory','getAllUsers','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','undoClean','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','undoOp',,'addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -587,5 +587,322 @@ function askUndoSettle(id,role,amount,label){openConfirm('Annullare l\'ultimo sa
 function doUndoSettle(id,role){closeModal();rc('<div class="loading"><span class="spin"></span>Annullando il saldo...</div>');google.script.run.withSuccessHandler(function(r){(r&&r.ok)?toast('Saldo annullato'):toast((r&&r.error)||'Errore','err');if(role==='lavanderia')doIncassi();else doCosts();}).withFailureHandler(function(){toast('Errore','err');doCosts();}).undoSettle(id,role);}
 function toast(msg,type){type=type||'ok';var t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;setTimeout(function(){t.className='';},2800);}
 </script>
+/* ══════════════════════════════════════════════════════════════
+   COSTI FORNITORI — blocco da incollare in index.html
+   subito PRIMA della riga di chiusura </script> finale.
+
+   Ridefinisce doCosts(): l'ultima dichiarazione vince, quindi la
+   vecchia versione (solo lavanderia) viene sostituita senza dover
+   cancellare nulla.
+
+   PRIMA DI INCOLLARE: nell'array FNS del ponte, in cima al file,
+   aggiungi in fondo alla lista queste sei voci:
+     'addSupplierCost','deleteSupplierCost','getSupplierSummary',
+     'settleSupplierCosts','undoSupplierSettle','getSupplierReport'
+   ══════════════════════════════════════════════════════════════ */
+
+var cfTab = 'dovuto';          // 'dovuto' | 'report'
+var cfPeriodo = 'mese';
+var cfData = null;
+var cfReport = null;
+var cfExtraCasa = 'Majo';
+
+/* ── stile, iniettato una volta sola ─────────────────────────── */
+(function () {
+  if (document.getElementById('cf-style')) return;
+  var s = document.createElement('style');
+  s.id = 'cf-style';
+  s.textContent =
+  '.cf-tabs{display:flex;gap:8px;margin-bottom:16px}' +
+  '.cf-tab{flex:1;padding:11px;border-radius:var(--r);border:none;font-size:13px;font-weight:700;background:var(--warm);color:var(--dk)}' +
+  '.cf-tab.on{background:var(--dk);color:#fff}' +
+  '.cf-sup{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px}' +
+  '.cf-sup-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}' +
+  '.cf-sup-nome{font-size:16px;font-weight:800;color:var(--dk)}' +
+  '.cf-sup-ruolo{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gray);margin-top:2px}' +
+  '.cf-sup-eur{font-size:26px;font-weight:800;line-height:1;white-space:nowrap}' +
+  '.cf-pos{color:var(--red)}.cf-zero{color:var(--green)}.cf-neg{color:var(--green)}' +
+  '.cf-split{display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--gray);font-weight:600}' +
+  '.cf-voci{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}' +
+  '.cf-voce{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;border-bottom:1px solid #F2EFEA}' +
+  '.cf-voce:last-child{border-bottom:none}' +
+  '.cf-voce-l{color:var(--dk)}.cf-voce-d{font-size:11px;color:var(--gray);font-weight:600}' +
+  '.cf-voce-e{font-weight:700;white-space:nowrap;margin-left:10px}' +
+  '.cf-x{background:none;border:none;color:var(--gray);font-size:17px;padding:0 4px;margin-left:6px}' +
+  '.cf-salda{width:100%;margin-top:12px;padding:13px;border-radius:var(--r);border:none;background:var(--red);color:#fff;font-size:14px;font-weight:700;min-height:48px}' +
+  '.cf-salda.off{background:var(--warm);color:var(--gray)}' +
+  '.cf-add{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px}' +
+  '.cf-lbl{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gray);display:block;margin-bottom:8px}' +
+  '.cf-casa{display:flex;gap:8px;margin-bottom:12px}' +
+  '.cf-casa button{flex:1;padding:10px;border-radius:var(--r);border:none;font-size:13px;font-weight:700;background:var(--warm);color:var(--dk)}' +
+  '.cf-casa button.on{background:var(--dk);color:#fff}' +
+  '.cf-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}' +
+  '.cf-b{padding:14px 10px;border-radius:var(--r);border:1px solid var(--border);background:#fff;font-size:13px;font-weight:700;color:var(--dk);min-height:52px;text-align:center}' +
+  '.cf-b small{display:block;font-size:11px;font-weight:600;color:var(--gray);margin-top:3px}' +
+  '.cf-per{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto}' +
+  '.cf-per button{flex:0 0 auto;padding:8px 14px;border-radius:100px;border:1px solid var(--border);background:#fff;font-size:12px;font-weight:700;color:var(--gray)}' +
+  '.cf-per button.on{background:var(--dk);color:#fff;border-color:var(--dk)}' +
+  '.cf-tot{background:var(--dk);color:#fff;border-radius:var(--r);padding:18px;margin-bottom:12px}' +
+  '.cf-tot-n{font-size:30px;font-weight:800;line-height:1}' +
+  '.cf-tot-l{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.6;margin-bottom:6px}' +
+  '.cf-tot-s{display:flex;gap:18px;margin-top:12px;font-size:12px;font-weight:600;opacity:.85}' +
+  '.cf-tbl{background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}' +
+  '.cf-tr{display:flex;justify-content:space-between;padding:11px 14px;font-size:13px;border-bottom:1px solid #F2EFEA}' +
+  '.cf-tr:last-child{border-bottom:none}' +
+  '.cf-tr.h{background:var(--warm);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gray)}' +
+  '.cf-tr b{font-weight:700}' +
+  '.cf-note{font-size:12px;color:var(--gray);margin-top:12px;line-height:1.5}';
+  document.head.appendChild(s);
+})();
+
+/* ── utilita ─────────────────────────────────────────────────── */
+function cfEur(n) {
+  n = Math.round((Number(n) || 0) * 100) / 100;
+  return n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+function cfOggi() {
+  var d = new Date(), z = function (x) { return (x < 10 ? '0' : '') + x; };
+  return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+/* ── entry point della tab Costi ─────────────────────────────── */
+function doCosts() {
+  rc('<div class="loading"><span class="spin"></span>Caricamento costi...</div>');
+  google.script.run
+    .withSuccessHandler(function (d) { cfData = d; cfRender(); })
+    .withFailureHandler(function () { toast('Errore caricamento', 'err'); })
+    .getSupplierSummary();
+}
+
+function cfGoTab(t) {
+  cfTab = t;
+  if (t === 'report' && !cfReport) { cfLoadReport(); return; }
+  cfRender();
+}
+
+function cfLoadReport() {
+  rc('<div class="loading"><span class="spin"></span>Calcolo report...</div>');
+  google.script.run
+    .withSuccessHandler(function (r) { cfReport = r; cfTab = 'report'; cfRender(); })
+    .withFailureHandler(function () { toast('Errore report', 'err'); })
+    .getSupplierReport(cfPeriodo);
+}
+
+function cfSetPeriodo(p) { cfPeriodo = p; cfReport = null; cfLoadReport(); }
+
+function cfRender() {
+  var h = '<div class="pg">';
+  h += '<div class="cf-tabs">' +
+       '<button class="cf-tab ' + (cfTab === 'dovuto' ? 'on' : '') + '" onclick="cfGoTab(\'dovuto\')">Da pagare</button>' +
+       '<button class="cf-tab ' + (cfTab === 'report' ? 'on' : '') + '" onclick="cfGoTab(\'report\')">Report costi</button>' +
+       '</div>';
+  h += (cfTab === 'dovuto') ? cfHtmlDovuto() : cfHtmlReport();
+  h += '</div>';
+  rc(h);
+}
+
+/* ── vista: da pagare ────────────────────────────────────────── */
+function cfHtmlDovuto() {
+  var d = cfData || {};
+  var ruoli = { Eddie: 'Pulizie', Matteo: 'Check-in e logistica', Said: 'Lavanderia' };
+  var h = '';
+
+  ['Eddie', 'Matteo', 'Said'].forEach(function (f) {
+    var s = d[f] || { dovuto: 0, voci: 0, byHouse: {}, ultimeVoci: [] };
+    var cls = s.dovuto > 0 ? 'cf-pos' : (s.dovuto < 0 ? 'cf-neg' : 'cf-zero');
+
+    h += '<div class="cf-sup">';
+    h += '<div class="cf-sup-top"><div><div class="cf-sup-nome">' + f + '</div>' +
+         '<div class="cf-sup-ruolo">' + ruoli[f] + '</div></div>' +
+         '<div class="cf-sup-eur ' + cls + '">' + cfEur(s.dovuto) + '</div></div>';
+
+    if (s.dovuto < 0) h += '<div class="cf-voce-d">Ha incassato piu di quanto gli spetta: il saldo e a tuo favore</div>';
+
+    h += '<div class="cf-split"><span>Majo ' + cfEur(s.byHouse.Majo || 0) + '</span>' +
+         '<span>Nievo ' + cfEur(s.byHouse.Nievo || 0) + '</span></div>';
+
+    if (f === 'Said') {
+      h += '<div class="cf-voce-d" style="margin-top:8px">Dal registro lavanderia. Si salda dalla scheda Incassi.</div>';
+    } else if (s.ultimeVoci && s.ultimeVoci.length) {
+      h += '<div class="cf-voci">';
+      s.ultimeVoci.slice(0, 8).forEach(function (v) {
+        h += '<div class="cf-voce"><div><div class="cf-voce-l">' + v.tipo + ' · ' + v.casa + '</div>' +
+             '<div class="cf-voce-d">' + v.data + (v.note ? ' · ' + String(v.note).substring(0, 34) : '') + '</div></div>' +
+             '<div style="display:flex;align-items:center"><span class="cf-voce-e">' + cfEur(v.importo) + '</span>' +
+             '<button class="cf-x" onclick="cfDel(' + v.riga + ')" title="Elimina">&times;</button></div></div>';
+      });
+      if (s.ultimeVoci.length > 8) {
+        h += '<div class="cf-voce-d" style="padding-top:8px">e altre ' + (s.ultimeVoci.length - 8) + ' voci</div>';
+      }
+      h += '</div>';
+      h += '<button class="cf-salda" onclick="cfSalda(\'' + f + '\')">Salda ' + f + ' in contanti · ' + cfEur(s.dovuto) + '</button>';
+    } else {
+      h += '<button class="cf-salda off" disabled>Niente da pagare</button>';
+    }
+    h += '</div>';
+  });
+
+  /* inserimento extra */
+  h += '<div class="cf-add"><span class="cf-lbl">Aggiungi voce</span>';
+  h += '<div class="cf-casa">' +
+       '<button class="' + (cfExtraCasa === 'Majo' ? 'on' : '') + '" onclick="cfSetCasa(\'Majo\')">Majo</button>' +
+       '<button class="' + (cfExtraCasa === 'Nievo' ? 'on' : '') + '" onclick="cfSetCasa(\'Nievo\')">Nievo</button>' +
+       '</div>';
+  h += '<div class="cf-grid">';
+  h += '<button class="cf-b" onclick="cfAdd(\'Eddie\',\'Extra\',5,\'Mezz\\\'ora aggiuntiva\')">Mezz\'ora in piu<small>Eddie · 5 €</small></button>';
+  h += '<button class="cf-b" onclick="cfAdd(\'Eddie\',\'Extra\',5,\'Travaso biancheria a Said\')">Biancheria a Said<small>Eddie · 5 €</small></button>';
+  h += '<button class="cf-b" onclick="cfAdd(\'Eddie\',\'Extra\',5,\'Rientro per divano letto\')">Rientro divano letto<small>Eddie · 5 €</small></button>';
+  h += '<button class="cf-b" onclick="cfAdd(\'Eddie\',\'Check-in\',20,\'Check-in al posto di Matteo\')">Check-in di Eddie<small>Eddie · 20 €</small></button>';
+  h += '<button class="cf-b" onclick="cfAdd(\'Matteo\',\'Logistica\',5,\'Viaggio logistica\')">Viaggio Matteo<small>Matteo · 5 €</small></button>';
+  h += '<button class="cf-b" onclick="cfAddLibero()">Altro importo<small>scegli tu</small></button>';
+  h += '</div>';
+  h += '<div class="cf-note">Le pulizie standard arrivano da sole da Turno ogni 4 ore. Qui si registra solo cio che concordi a voce o su WhatsApp.</div>';
+  h += '</div>';
+
+  return h;
+}
+
+function cfSetCasa(c) { cfExtraCasa = c; cfRender(); }
+
+function cfAdd(fornitore, tipo, importo, nota) {
+  tap(function () {
+    rc('<div class="loading"><span class="spin"></span>Registrazione...</div>');
+    google.script.run
+      .withSuccessHandler(function (r) {
+        if (r && r.ok) { toast(fornitore + ' · ' + cfEur(importo) + ' su ' + cfExtraCasa); doCosts(); }
+        else if (r && r.duplicato) { cfConfermaDoppione(fornitore, tipo, importo, nota, r.error); }
+        else { toast((r && r.error) || 'Errore', 'err'); doCosts(); }
+      })
+      .withFailureHandler(function () { toast('Errore', 'err'); doCosts(); })
+      .addSupplierCost({ data: cfOggi(), fornitore: fornitore, casa: cfExtraCasa,
+                         tipo: tipo, importo: importo, origine: 'manuale', note: nota });
+  });
+}
+
+function cfConfermaDoppione(fornitore, tipo, importo, nota, msg) {
+  var h = '<div class="pg"><div class="cf-sup">';
+  h += '<div class="cf-sup-nome">Voce gia presente</div>';
+  h += '<div class="cf-note" style="margin-top:10px">' + msg + '</div>';
+  h += '<div class="cf-note">Se e davvero un secondo servizio, confermalo. Altrimenti annulla.</div>';
+  h += '<div class="md-btns"><button class="md-btn mb-c" onclick="doCosts()">Annulla</button>' +
+       '<button class="md-btn mb-ok" onclick="cfForza(\'' + fornitore + '\',\'' + tipo + '\',' + importo + ',\'' + nota.replace(/'/g, "\\'") + '\')">Aggiungi comunque</button></div>';
+  h += '</div></div>';
+  rc(h);
+}
+
+function cfForza(fornitore, tipo, importo, nota) {
+  rc('<div class="loading"><span class="spin"></span>Registrazione...</div>');
+  google.script.run
+    .withSuccessHandler(function (r) { toast(r && r.ok ? 'Aggiunta' : ((r && r.error) || 'Errore'), r && r.ok ? 'ok' : 'err'); doCosts(); })
+    .withFailureHandler(function () { toast('Errore', 'err'); doCosts(); })
+    .addSupplierCost({ data: cfOggi(), fornitore: fornitore, casa: cfExtraCasa,
+                       tipo: tipo, importo: importo, origine: 'manuale', note: nota, forza: true });
+}
+
+function cfAddLibero() {
+  var v = prompt('Importo in euro (usa il meno per gli incassi di Matteo):');
+  if (v === null) return;
+  var n = Number(String(v).replace(',', '.'));
+  if (!n) { toast('Importo non valido', 'err'); return; }
+  var f = prompt('Fornitore: Eddie o Matteo', 'Eddie');
+  if (!f) return;
+  f = f.trim().charAt(0).toUpperCase() + f.trim().slice(1).toLowerCase();
+  if (['Eddie', 'Matteo'].indexOf(f) === -1) { toast('Fornitore non valido', 'err'); return; }
+  var nota = prompt('Nota (facoltativa):') || '';
+  cfAdd(f, n < 0 ? 'Incasso' : 'Altro', n, nota);
+}
+
+function cfDel(riga) {
+  if (!confirm('Eliminare questa voce?')) return;
+  google.script.run
+    .withSuccessHandler(function (r) { toast(r && r.ok ? 'Eliminata' : ((r && r.error) || 'Errore'), r && r.ok ? 'ok' : 'err'); doCosts(); })
+    .withFailureHandler(function () { toast('Errore', 'err'); doCosts(); })
+    .deleteSupplierCost(riga);
+}
+
+/* ── saldo con conferma e annullo a 30 secondi ───────────────── */
+function cfSalda(fornitore) {
+  var s = (cfData || {})[fornitore] || {};
+  var h = '<div class="pg"><div class="cf-sup">';
+  h += '<div class="cf-sup-nome">Confermi il pagamento?</div>';
+  h += '<div class="cf-note" style="margin-top:10px">Stai per segnare come pagate <b>' + s.voci +
+       ' voci</b> di ' + fornitore + ', per un totale di <b>' + cfEur(s.dovuto) + '</b> in contanti.</div>';
+  h += '<div class="cf-note">Majo ' + cfEur(s.byHouse.Majo || 0) + ' · Nievo ' + cfEur(s.byHouse.Nievo || 0) + '</div>';
+  h += '<div class="md-btns"><button class="md-btn mb-c" onclick="doCosts()">Annulla</button>' +
+       '<button class="md-btn mb-ok" onclick="cfSaldaOk(\'' + fornitore + '\')">Ho pagato</button></div>';
+  h += '</div></div>';
+  rc(h);
+}
+
+function cfSaldaOk(fornitore) {
+  rc('<div class="loading"><span class="spin"></span>Registrazione saldo...</div>');
+  google.script.run
+    .withSuccessHandler(function (r) {
+      if (!r || !r.ok) { toast((r && r.error) || 'Errore', 'err'); doCosts(); return; }
+      succScreen('&#128181;', 'Saldato', fornitore + ' · ' + cfEur(r.totale) + ' (' + r.voci + ' voci)',
+        function () {
+          rc('<div class="loading"><span class="spin"></span>Annullando...</div>');
+          google.script.run
+            .withSuccessHandler(function (r2) { toast(r2 && r2.ok ? 'Saldo annullato' : 'Errore', r2 && r2.ok ? 'ok' : 'err'); doCosts(); })
+            .withFailureHandler(function () { toast('Errore', 'err'); doCosts(); })
+            .undoSupplierSettle(r.batchId);
+        });
+    })
+    .withFailureHandler(function () { toast('Errore', 'err'); doCosts(); })
+    .settleSupplierCosts(fornitore, 'contanti');
+}
+
+/* ── vista: report ───────────────────────────────────────────── */
+function cfHtmlReport() {
+  var r = cfReport;
+  if (!r) return '<div class="loading">Nessun dato</div>';
+
+  var etichette = { settimana: 'Settimana', mese: 'Mese', trimestre: 'Trimestre', anno: 'Anno', tutto: 'Sempre' };
+  var h = '<div class="cf-per">';
+  ['settimana', 'mese', 'trimestre', 'anno', 'tutto'].forEach(function (p) {
+    h += '<button class="' + (cfPeriodo === p ? 'on' : '') + '" onclick="cfSetPeriodo(\'' + p + '\')">' + etichette[p] + '</button>';
+  });
+  h += '</div>';
+
+  var pf = r.perFornitore || {};
+  h += '<div class="cf-tot"><div class="cf-tot-l">Totale fornitori</div>' +
+       '<div class="cf-tot-n">' + cfEur(r.totale) + '</div>' +
+       '<div class="cf-tot-s"><span>Majo ' + cfEur((r.perCasa || {}).Majo) + '</span>' +
+       '<span>Nievo ' + cfEur((r.perCasa || {}).Nievo) + '</span></div></div>';
+
+  h += '<span class="cf-lbl">Per fornitore</span><div class="cf-tbl">';
+  ['Eddie', 'Matteo', 'Said'].forEach(function (f) {
+    h += '<div class="cf-tr"><span>' + f + '</span><b>' + cfEur(pf[f] || 0) + '</b></div>';
+  });
+  h += '</div>';
+
+  var c = r.conteggi || {};
+  h += '<span class="cf-lbl" style="margin-top:18px">Volumi</span><div class="cf-tbl">';
+  h += '<div class="cf-tr"><span>Pulizie</span><b>' + ((c.Pulizia || 0) + (c['Pulizia + extra'] || 0)) + '</b></div>';
+  h += '<div class="cf-tr"><span>Check-in</span><b>' + (c['Check-in'] || 0) + '</b></div>';
+  h += '<div class="cf-tr"><span>Extra</span><b>' + ((c.Extra || 0) + (c.Logistica || 0)) + '</b></div>';
+  h += '<div class="cf-tr"><span>Costo medio per turnover</span><b>' + cfEur((r.medie || {}).perTurnover) + '</b></div>';
+  h += '</div>';
+
+  var per = r.perPeriodo || {};
+  var chiavi = Object.keys(per).sort().reverse().slice(0, 14);
+  if (chiavi.length) {
+    h += '<span class="cf-lbl" style="margin-top:18px">Andamento</span><div class="cf-tbl">';
+    h += '<div class="cf-tr h"><span>Periodo</span><span>Eddie · Matteo · Said</span></div>';
+    chiavi.forEach(function (k) {
+      var p = per[k];
+      h += '<div class="cf-tr"><span><b>' + k + '</b><br><span class="cf-voce-d">' + cfEur(p.totale) + '</span></span>' +
+           '<span style="text-align:right;font-size:12px;color:var(--gray);font-weight:600">' +
+           Math.round(p.Eddie) + ' · ' + Math.round(p.Matteo) + ' · ' + Math.round(p.Said) + ' €</span></div>';
+    });
+    h += '</div>';
+  }
+
+  h += '<div class="cf-note">Dati dal ' + (r.dal || '') + ' al ' + (r.al || '') + '. ' +
+       'Lo storico di Matteo si ferma a novembre 2025 e quello di Said parte da maggio 2026: ' +
+       'i confronti fra fornitori sono attendibili solo dal 31/07/2026.</div>';
+
+  return h;
+}
 </body>
 </html>
