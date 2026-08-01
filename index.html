@@ -587,19 +587,8 @@ function askUndoSettle(id,role,amount,label){openConfirm('Annullare l\'ultimo sa
 function doUndoSettle(id,role){closeModal();rc('<div class="loading"><span class="spin"></span>Annullando il saldo...</div>');google.script.run.withSuccessHandler(function(r){(r&&r.ok)?toast('Saldo annullato'):toast((r&&r.error)||'Errore','err');if(role==='lavanderia')doIncassi();else doCosts();}).withFailureHandler(function(){toast('Errore','err');doCosts();}).undoSettle(id,role);}
 function toast(msg,type){type=type||'ok';var t=document.getElementById('toast');t.textContent=msg;t.className='show '+type;setTimeout(function(){t.className='';},2800);}
 
-/* ══════════════════════════════════════════════════════════════
-   COSTI FORNITORI — blocco da incollare in index.html
-   subito PRIMA della riga di chiusura </script> finale.
+/* ===== COSTI FORNITORI ===== */
 
-   Ridefinisce doCosts(): l'ultima dichiarazione vince, quindi la
-   vecchia versione (solo lavanderia) viene sostituita senza dover
-   cancellare nulla.
-
-   PRIMA DI INCOLLARE: nell'array FNS del ponte, in cima al file,
-   aggiungi in fondo alla lista queste sei voci:
-     'addSupplierCost','deleteSupplierCost','getSupplierSummary',
-     'settleSupplierCosts','undoSupplierSettle','getSupplierReport'
-   ══════════════════════════════════════════════════════════════ */
 
 var cfTab = 'dovuto';          // 'dovuto' | 'report'
 var cfPeriodo = 'mese';
