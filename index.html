@@ -44,6 +44,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14100E">
+<!-- App a schermo intero su iPhone/iPad quando si aggiunge alla schermata Home:
+     spariscono la barra dell'indirizzo in alto e la barra di Safari in basso.
+     Perche' abbia effetto, l'icona sulla Home va CANCELLATA e RIAGGIUNTA dopo
+     aver caricato questo file: iOS legge questi tag al momento dell'aggiunta. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Majo Ops">
+<!-- black-translucent: il contenuto passa sotto l'orologio; l'intestazione ha
+     gia' il padding env(safe-area-inset-top) che gli lascia lo spazio. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
 <title>Majo Ops · Majo Houses</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,7 +67,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration'];
+var FNS=['whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -459,7 +471,7 @@ function ssDel(k){try{sessionStorage.removeItem(k);}catch(e){}delete MEM[k];}
 var WRITE_FNS=['registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery',
   'undoOp','moveDeclaration','settleCosts','undoSettle','settleSupplierCosts','undoSupplierSettle',
   'addSupplierCost','deleteSupplierCost','updateTotal','reconcileItem','adminPickup','adminClean',
-  'adminDeliver','addUser','updateUser','deleteUser'];
+  'adminDeliver','addUser','updateUser','deleteUser','annullaIncassoMatteo'];
 var INFLIGHT={};
 function api(fn){
   var args=Array.prototype.slice.call(arguments,1);
@@ -1265,18 +1277,57 @@ var MESI=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic
 function mLab(k){var p=String(k).split('-');return (MESI[(+p[1]||1)-1]||'')+' '+String(p[0]).slice(2);}
 /* Tutti i numeri del report sono ricalcolati sulla vista scelta, in locale:
    perPeriodo contiene i mesi con dentro il dettaglio per fornitore e per casa. */
+/* Etichetta corta per le barre. La forma della chiave dice il tipo di periodo:
+   2026 · 2026-T3 · 2026-07 · 2026-07-27 (lunedi della settimana) */
+function perLab(k){
+  var s=String(k);
+  if(/^\d{4}$/.test(s))return s;
+  if(/^\d{4}-T\d$/.test(s))return 'T'+s.slice(-1)+" '"+s.slice(2,4);
+  if(/^\d{4}-\d{2}$/.test(s))return (MESI[(+s.slice(5,7)||1)-1]||'')+' '+s.slice(2,4);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return (+s.slice(8,10))+' '+(MESI[(+s.slice(5,7)||1)-1]||'');
+  return s;
+}
+/* Titolo esteso del periodo in corso, quello sotto il numero grande. */
+function perTit(k){
+  var s=String(k),MM=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio',
+    'agosto','settembre','ottobre','novembre','dicembre'];
+  if(/^\d{4}$/.test(s))return 'anno '+s;
+  if(/^\d{4}-T\d$/.test(s))return 'trimestre '+s.slice(-1)+' del '+s.slice(0,4);
+  if(/^\d{4}-\d{2}$/.test(s))return (MM[(+s.slice(5,7)||1)-1]||'')+' '+s.slice(0,4);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)){
+    var d=new Date(+s.slice(0,4),(+s.slice(5,7))-1,+s.slice(8,10)),f=new Date(d);
+    f.setDate(d.getDate()+6);
+    return 'settimana '+d.getDate()+' '+MESI[d.getMonth()]+' – '+f.getDate()+' '+MESI[f.getMonth()];
+  }
+  return s;
+}
+var BARRE={settimana:12,mese:12,trimestre:8,anno:6,tutto:12};
+var UNITA={settimana:'settimana per settimana',mese:'mese per mese',
+  trimestre:'trimestre per trimestre',anno:'anno per anno',tutto:'mese per mese'};
+
+/* Il numero grande e le due classifiche sono del PERIODO SELEZIONATO, non di
+   tutto lo storico: r.corrente dice quale contenitore contiene oggi.
+   Unica eccezione, "Tutto": r.cumulativo=true e si somma ogni contenitore.
+   La media esclude sempre il periodo in corso, che e' ancora incompleto. */
 function repAgg(){
   var r=S.reports[S.period]||{},pp=r.perPeriodo||{},v=S.vista||'';
   var keys=Object.keys(pp).sort();
   var series=keys.map(function(k){var b=pp[k]||{};
     return {k:k,v:Number(v?b[v]:b.totale)||0};});
-  var tot;
-  if(!v)tot=Number(r.totale)||0;
-  else if((r.perFornitore||{})[v]!=null)tot=Number(r.perFornitore[v])||0;
-  else if((r.perCasa||{})[v]!=null)tot=Number(r.perCasa[v])||0;
-  else tot=series.reduce(function(a,x){return a+x.v;},0);
-  var mesiConSpesa=series.filter(function(x){return x.v>0;}).length;
-  return {r:r,series:series,tot:tot,mesi:mesiConSpesa||series.length,v:v};
+  var cur=r.corrente||'',box=pp[cur]||null,cum=!!r.cumulativo;
+  var val=function(b){return Number(v?b[v]:b.totale)||0;};
+  var tot,nPul,nChk;
+  if(cum||!box){
+    tot=keys.reduce(function(a,k){return a+val(pp[k]);},0);
+    nPul=keys.reduce(function(a,k){return a+(Number(pp[k].nPulizie)||0);},0);
+    nChk=keys.reduce(function(a,k){return a+(Number(pp[k].nCheckin)||0);},0);
+  }else{
+    tot=val(box); nPul=Number(box.nPulizie)||0; nChk=Number(box.nCheckin)||0;
+  }
+  var chiusi=series.filter(function(x){return x.k!==cur&&x.v>0;});
+  var media=chiusi.length?chiusi.reduce(function(a,x){return a+x.v;},0)/chiusi.length:0;
+  return {r:r,series:series,tot:tot,cur:cur,cum:cum,box:box,media:media,
+          nChiusi:chiusi.length,nPul:nPul,nChk:nChk,v:v};
 }
 function repBar(rows,total){
   return rows.map(function(x){
@@ -1299,45 +1350,52 @@ function costiRep(){
   var head='<div class="stack g8">'+seg+vseg+'</div>';
   if(!S.reports[S.period])return head+'<div class="sk" style="height:132px;border-radius:20px;margin-top:14px"></div>'+
     '<div class="sk" style="height:190px;border-radius:20px;margin-top:14px"></div>';
-  var A=repAgg(),r=A.r,pf=r.perFornitore||{},pc=r.perCasa||{},med=r.medie||{},pp=r.perPeriodo||{};
-  var vis=A.v?A.v:'tutti i fornitori';
-  var noDet=!!(A.v&&A.tot>0&&!A.series.some(function(x){return x.v>0;}));
-  var shown=(noDet?A.series.map(function(x){return {k:x.k,v:Number((pp[x.k]||{}).totale)||0};}):A.series).slice(-7);
+  var A=repAgg(),r=A.r,pp=r.perPeriodo||{},vis=A.v?A.v:'tutti i fornitori';
+  var box=(A.cum||!A.box)?null:A.box;
+  /* Classifiche: dal contenitore del periodo se c'e', altrimenti somma di tutto. */
+  var quota=function(k){
+    if(box)return Number(box[k])||0;
+    return Object.keys(pp).reduce(function(a,x){return a+(Number(pp[x][k])||0);},0);
+  };
+  var totClass=box?(Number(box.totale)||0):
+    Object.keys(pp).reduce(function(a,x){return a+(Number(pp[x].totale)||0);},0);
+  var shown=A.series.slice(-(BARRE[S.period]||12));
   var max=Math.max.apply(null,shown.map(function(x){return x.v;}).concat([1]));
-  var media=A.mesi>0?A.tot/A.mesi:0;
+  var sotto=A.cum?('tutto lo storico'+(r.dal?' · '+esc(r.dal)+' → '+esc(r.al):'')):esc(perTit(A.cur))+' · in corso';
+  var mediaLab={settimana:'Media a settimana',trimestre:'Media a trimestre',
+    anno:'Media all\u2019anno'}[S.period]||'Media al mese';
+  var medPul=A.nPul?A.tot/A.nPul:0, medChk=A.nChk?(quota('Matteo')/A.nChk):0;
   return head+'<div class="stack g14" style="margin-top:14px">'+
     '<div class="card pad stack g8">'+
       '<div class="fs13 dim b">SPESO · '+esc(vis.toUpperCase())+'</div>'+
       '<div class="big num">'+eur0(A.tot)+'</div>'+
-      '<div class="fs13 dim">'+(r.dal?esc(r.dal)+' → '+esc(r.al):'periodo selezionato')+
-        (A.mesi?' · '+n0(A.mesi)+(A.mesi===1?' mese':' mesi')+' con spesa':'')+'</div>'+
-      '<div class="between" style="margin-top:2px"><span class="fs15 muted">Media al mese</span>'+
-        '<b class="num fs18">'+eur0(media)+'</b></div>'+
+      '<div class="fs13 dim">'+sotto+'</div>'+
+      (A.nChiusi?'<div class="between" style="margin-top:2px"><span class="fs15 muted">'+mediaLab+
+        '</span><b class="num fs18">'+eur0(A.media)+'</b></div>'+
+        '<div class="fs13 dim">Media sui '+n0(A.nChiusi)+' periodi conclusi, quello in corso escluso.</div>':'')+
     '</div>'+
-    (shown.length?'<div class="card pad stack g8"><div class="fs13 dim b">ANDAMENTO MENSILE · '+
-      esc((noDet?'totale':vis).toUpperCase())+'</div>'+
-      (noDet?'<div class="note">Il gestionale non manda il dettaglio mese per mese di '+esc(A.v)+
-        ': qui vedi l\'andamento complessivo. Il totale e la media sopra invece sono di '+esc(A.v)+'.</div>':'')+
+    (shown.length?'<div class="card pad stack g8"><div class="fs13 dim b">ANDAMENTO · '+
+      esc(vis.toUpperCase())+'</div>'+
       '<div class="bars">'+shown.map(function(x){
-        return '<div class="bcol"><u class="num">'+(x.v?n0(x.v):'—')+'</u>'+
+        return '<div class="bcol"'+(x.k===A.cur?' style="opacity:.72"':'')+'><u class="num">'+(x.v?n0(x.v):'—')+'</u>'+
           '<i style="height:'+Math.max(2,Math.round(x.v/max*62))+'px'+
           (A.v&&HOUSES.indexOf(A.v)>=0?';background:var(--'+A.v.toLowerCase()+')':'')+'"></i>'+
-          '<s>'+esc(mLab(x.k))+'</s></div>';}).join('')+'</div>'+
-      '<div class="fs13 dim">Valori in euro, mese per mese. Massimo '+eur0(max)+'.</div></div>':'')+
+          '<s>'+esc(perLab(x.k))+'</s></div>';}).join('')+'</div>'+
+      '<div class="fs13 dim">Valori in euro, '+(UNITA[S.period]||'')+
+      '. Massimo '+eur0(max)+'. L\u2019ultima barra e\u2019 il periodo in corso.</div></div>':'')+
     '<div class="card pad stack g6"><div class="fs13 dim b">CHI COSTA, NEL PERIODO</div>'+
-      repBar(SUPPLIERS.map(function(f){return {k:f,l:f,v:Number(pf[f])||0,c:'var(--acc)'};}),
-        Number(r.totale)||0)+
+      repBar(SUPPLIERS.map(function(f){return {k:f,l:f,v:quota(f),c:'var(--acc)'};}),totClass)+
       '<div class="hr"></div><div class="fs13 dim b">DOVE SI SPENDE</div>'+
-      repBar(HOUSES.map(function(p){return {k:p,l:p+' · '+NICE[p],v:Number(pc[p])||0,c:'var(--'+p.toLowerCase()+')'};}),
-        Number(r.totale)||0)+
+      repBar(HOUSES.map(function(p){return {k:p,l:p+' · '+NICE[p],v:quota(p),c:'var(--'+p.toLowerCase()+')'};}),totClass)+
     '</div>'+
-    (!A.v&&(med.perTurnover||med.perCheckin)?'<div class="card pad stack g8"><div class="fs13 dim b">COSTO MEDIO NEL PERIODO</div>'+
-      '<div class="between"><span class="fs15">Per turnover</span><b class="num">'+eur0(med.perTurnover||0)+'</b></div>'+
-      '<div class="between"><span class="fs15">Per check-in</span><b class="num">'+eur0(med.perCheckin||0)+'</b></div>'+
-      '<div class="fs13 dim">Calcolati dal gestionale su tutte le voci del periodo.</div></div>':'')+
+    (!A.v&&(medPul||medChk)?'<div class="card pad stack g8"><div class="fs13 dim b">COSTO MEDIO NEL PERIODO</div>'+
+      (medPul?'<div class="between"><span class="fs15">Per turnover</span><b class="num">'+eur0(medPul)+'</b></div>':'')+
+      (medChk?'<div class="between"><span class="fs15">Per check-in</span><b class="num">'+eur0(medChk)+'</b></div>':'')+
+      '<div class="fs13 dim">'+n0(A.nPul)+' pulizie e '+n0(A.nChk)+' check-in nel periodo.</div></div>':'')+
     (A.v?'<button class="btn btn-s" data-act="vista" data-v="">Torna a tutti i fornitori</button>':'')+
   '</div>';
 }
+
 function loadReport(p){
   S.period=p;
   if(S.reports[p]){render();return;}
@@ -1503,6 +1561,12 @@ function voceSheet(f,riga){
       '<div class="mid num">'+eur0(v.importo)+'</div></div>'+
     '<button class="btn btn-p btn-xl" data-act="extra-on-voce" data-f="'+f+'" data-r="'+esc(riga)+'">'+
       ic('plus',20)+' Aggiungi un extra a questo intervento</button>'+
+    /* Incasso della tassa di soggiorno scritto in automatico dal greeter sync:
+       se l'ospite non aveva contanti e ha pagato con un link, Matteo non ha
+       incassato niente e quella riga non deve pesare sul suo conto. */
+    (f==='Matteo'&&v.tipo==='Incasso'&&Number(v.importo)!==0
+      ? '<button class="btn btn-s" data-act="no-incasso" data-r="'+esc(riga)+'">'+
+        ic('x',18)+' Non incassato da Matteo</button>' : '')+
     '<button class="btn btn-s" data-act="del-voce" data-f="'+f+'" data-r="'+esc(riga)+'">'+ic('trash',18)+' Elimina questa voce</button>');
   /* Il backend cancella solo se data, fornitore e importo combaciano con la riga:
      se il foglio è stato riordinato nel frattempo, rifiuta invece di cancellare altro. */
@@ -1821,6 +1885,31 @@ document.addEventListener('click',function(e){
       closeSheet();
       if(vv){S.extraTarget={f:d.f,data:vv.data,casa:vv.casa,tipo:vv.tipo,importo:vv.importo,mult:1};
         addCostSheet(d.f);acRender('int');}
+      break;}
+    case 'no-incasso':{
+      var ni=null;
+      ((S.sup||{}).Matteo||{}).ultimeVoci&&S.sup.Matteo.ultimeVoci.forEach(function(x){
+        if(String(x.riga)===String(d.r))ni=x;});
+      if(!ni){toast('Voce non piu disponibile','bad');break;}
+      S._noInc=d.r;
+      sheet('Non incassato da Matteo',
+        '<div class="card pad stack g6"><div class="fs15">Tolgo dal conto di Matteo la tassa di soggiorno del '+
+          esc(ni.data)+' su '+esc(ni.casa||'—')+', '+eur0(Math.abs(Number(ni.importo)||0))+'.</div>'+
+        '<div class="fs14 muted">Il suo compenso per il check-in resta: quello gli spetta comunque. '+
+          'La riga non sparisce, resta a zero con la nota.</div></div>'+
+        '<button class="btn btn-p btn-xl" data-act="no-incasso-go">Confermo, ha pagato con link</button>'+
+        '<button class="btn btn-s" data-act="close-sheet">Annulla</button>');
+      break;}
+    case 'no-incasso-go':{
+      var nr=S._noInc; closeSheet();
+      if(!nr)break;
+      api('annullaIncassoMatteo',Number(nr)).then(function(r){
+        if(r&&r.ok===false)throw new Error(r.error||'Errore');
+        toast(r&&r.modo==='compensata'
+          ? 'Saldo gia chiuso: aggiunta una riga di correzione'
+          : 'Tolto dal conto di Matteo');
+        S._noInc=null; refresh(true);
+      }).catch(function(e){toast('Non riuscito','bad',e.message||'');});
       break;}
     case 'del-voce':{
       var dv=S._delVoce||{riga:d.r};closeSheet();
