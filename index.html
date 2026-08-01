@@ -445,7 +445,8 @@ var TARIFFE={
   Eddie:[{l:'Pulizia Majo',v:30,casa:'Majo',tipo:'Pulizia'},{l:'Pulizia Nievo',v:40,casa:'Nievo',tipo:'Pulizia'},
          {l:'Check-in',v:20,tipo:'Check-in'},{l:'Extra',v:5,tipo:'Extra'}],
   Matteo:[{l:'Check-in feriale',v:20,tipo:'Check-in'},{l:'Check-in weekend',v:25,tipo:'Check-in'},
-          {l:'Check-in dopo le 22',v:50,tipo:'Check-in'},{l:'Logistica',v:5,tipo:'Logistica'}],
+          {l:'Check-in dopo le 22',v:50,tipo:'Check-in'},{l:'Logistica',v:5,tipo:'Logistica'},
+          {l:'Tassa di soggiorno',v:6,tipo:'Incasso'}],
   Said:[{l:'Extra',v:5,tipo:'Extra'},{l:'Altro',v:10,tipo:'Altro'}]
 };
 var EXTRA_STEP=5;
@@ -1520,6 +1521,10 @@ function freeForm(pref){
         return '<button class="pill" data-act="fc-amt" data-v="'+t.v+'" data-t="'+t.tipo+'"'+(t.casa?' data-h="'+t.casa+'"':'')+'>'+
         esc(t.l)+' · '+eur0(t.v)+'</button>';}).join('')+'</div>'+
       '<input class="input num" id="fc-amt" type="number" inputmode="decimal" step="0.5" min="0" placeholder="0,00" value="'+(d.importo||'')+'"></div>'+
+    ((d.tipo||'Pulizia')==='Incasso'
+      ? '<div class="note">Scrivi l\'importo positivo: e denaro che '+esc(f)+' ha preso per conto tuo '+
+        '(tassa di soggiorno, supplementi), quindi viene <b>sottratto</b> da quello che gli devi. '+
+        'Serve anche per registrare un saldo di apertura a tuo credito.</div>' : '')+
     '<label class="field"><span class="fs13 dim b" style="display:block;margin-bottom:6px">NOTA</span>'+
       '<input class="input" id="fc-note" value="'+esc(d.note||'')+'" placeholder="opzionale, ma aiuta a ricordare"></label>'+
     '<button class="btn btn-p btn-xl" data-act="fc-save">Registra il costo</button>'+
@@ -1543,9 +1548,16 @@ function saveFree(){
   var dt=$('#fc-date'),am=$('#fc-amt'),nt=$('#fc-note');
   var importo=Number(String(am?am.value:'').replace(',','.'));
   if(!importo||importo<=0){toast('Inserisci un importo','bad');return;}
+  var tipo=d.tipo||'Pulizia';
+  /* Un Incasso e' denaro che il fornitore ha preso per conto tuo: sul suo conto
+     va con il segno meno. Si digita sempre positivo — nessuno deve ricordarsi
+     di scrivere il trattino — e il segno lo mette il programma. */
+  var segnato=(tipo==='Incasso')?-Math.abs(importo):importo;
   var payload={data:toItDate(dt?dt.value:toIso(new Date())),fornitore:d.f||'Eddie',casa:d.casa||'Majo',
-    tipo:d.tipo||'Pulizia',importo:importo,origine:'app',note:nt?nt.value.trim():''};
-  postCost(payload,eur0(importo)+' registrati per '+payload.fornitore);
+    tipo:tipo,importo:segnato,origine:'app',note:nt?nt.value.trim():''};
+  postCost(payload,tipo==='Incasso'
+    ? eur0(importo)+' incassati da '+payload.fornitore+', tolti dal suo conto'
+    : eur0(importo)+' registrati per '+payload.fornitore);
 }
 function postCost(payload,okMsg,after){
   var btns=document.querySelectorAll('[data-act=ex-save],[data-act=fc-save]');
