@@ -503,8 +503,11 @@ function $(s,r){return (r||document).querySelector(s);}
 function el(t,c,h){var n=document.createElement(t);if(c)n.className=c;if(h!=null)n.innerHTML=h;return n;}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-var NF2=new Intl.NumberFormat('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
-var NF0=new Intl.NumberFormat('it-IT',{maximumFractionDigits:0});
+/* useGrouping:'always' e' necessario: la regola CLDR italiana raggruppa solo
+   da cinque cifre in su, quindi per difetto 12.776 prende il punto e 9562 no.
+   In un elenco di importi la disparita' si legge come un errore. */
+var NF2=new Intl.NumberFormat('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:'always'});
+var NF0=new Intl.NumberFormat('it-IT',{maximumFractionDigits:0,useGrouping:'always'});
 function n0(n){return NF0.format(Number(n)||0);}
 function eur(n){var v=Math.round((Number(n)||0)*100)/100;
   return (v===Math.round(v)?NF0.format(v):NF2.format(v))+' €';}
@@ -1366,7 +1369,13 @@ function costiRep(){
     Object.keys(pp).reduce(function(a,x){return a+(Number(pp[x].totale)||0);},0);
   var shown=A.series.slice(-(BARRE[S.period]||12));
   var max=Math.max.apply(null,shown.map(function(x){return x.v;}).concat([1]));
-  var sotto=A.cum?('tutto lo storico'+(r.dal?' · '+esc(r.dal)+' → '+esc(r.al):'')):esc(perTit(A.cur))+' · in corso';
+  /* Se il backend non manda 'corrente' non si sa quale periodo isolare: prima
+     si sommava tutto in silenzio e il numero grande sembrava semplicemente
+     sbagliato. Meglio dirlo. */
+  var vecchio=!A.cum&&!A.cur;
+  var sotto=vecchio?'TOTALE DI TUTTO LO STORICO — il gestionale non manda ancora il periodo'
+    :A.cum?('tutto lo storico'+(r.dal?' · '+esc(r.dal)+' → '+esc(r.al):''))
+    :esc(perTit(A.cur))+' · in corso';
   var mediaLab={settimana:'Media a settimana',trimestre:'Media a trimestre',
     anno:'Media all\u2019anno'}[S.period]||'Media al mese';
   var medPul=A.nPul?A.tot/A.nPul:0, medChk=A.nChk?(quota('Matteo')/A.nChk):0;
@@ -1375,6 +1384,9 @@ function costiRep(){
       '<div class="fs13 dim b">SPESO · '+esc(vis.toUpperCase())+'</div>'+
       '<div class="big num">'+eur0(A.tot)+'</div>'+
       '<div class="fs13 dim">'+sotto+'</div>'+
+      (vecchio?'<div class="note">Il filtro del periodo non sta funzionando: pubblica una '+
+        'Versione Nuova del backend su Apps Script (Distribuisci → Gestisci distribuzioni). '+
+        'Finche non lo fai, questo numero e il totale di sempre, non del periodo scelto.</div>':'')+
       (A.nChiusi?'<div class="between" style="margin-top:2px"><span class="fs15 muted">'+mediaLab+
         '</span><b class="num fs18">'+eur0(A.media)+'</b></div>'+
         '<div class="fs13 dim">Media sui '+n0(A.nChiusi)+' periodi conclusi, quello in corso escluso.</div>':'')+
