@@ -72,7 +72,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo','setOpDate','getOperatorBalance'];
+var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo','setOpDate','getOperatorBalance','registraGiroBiancheria','giorniGiroDisponibili'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -502,7 +502,7 @@ var S={
   loading:false, loadedAt:null, err:null,
   inv:null, dash:null, sup:null, cost:null, reports:{}, users:null,
   draft:{}, period:'tutto', logLimit:30, ops:null, openOp:null, extraTarget:null,
-  bal:null, balLimit:20,
+  bal:null, balLimit:20, giro:null, giroFlag:false,
   rep:{g:'mese',path:[],sel:null}
 };
 var DEMO=/(^|[#&?])demo/.test(location.hash+location.search);
@@ -521,7 +521,7 @@ function ssDel(k){try{sessionStorage.removeItem(k);}catch(e){}delete MEM[k];}
    chiamate invece di scartarle: due tocchi ravvicinati produrrebbero due scritture
    distinte. Quindi il doppio invio va bloccato qui, non solo disabilitando il tasto
    (con rete lenta o un reload il tasto non basta). */
-var WRITE_FNS=['registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery',
+var WRITE_FNS=['registraGiroBiancheria','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery',
   'undoOp','moveDeclaration','settleCosts','undoSettle','settleSupplierCosts','undoSupplierSettle',
   'addSupplierCost','deleteSupplierCost','updateTotal','reconcileItem','adminPickup','adminClean',
   'adminDeliver','addUser','updateUser','deleteUser','annullaIncassoMatteo','setOpDate'];
@@ -756,7 +756,7 @@ function needs(role){
      di Costi. Una chiamata in meno nella raffica di accesso. */
   if(role==='admin')return ['inv','dash','sup','cost'];
   if(role==='lavanderia')return ['inv','cost','dash'];
-  return ['inv','dash','bal'];
+  return ['inv','dash','bal','giro'];
 }
 /* Ogni chiamata ha il suo catch e risolve comunque: un fallimento singolo non deve
    affondare l'intera raffica. Se, per esempio, le funzioni fornitori non sono nella
@@ -776,6 +776,7 @@ function loadJobs(want,assign,fails){
   if(want.indexOf('cost')>=0)jobs.push(job('getCostSummary',[],assign.cost));
   if(want.indexOf('rep')>=0) jobs.push(job('getSupplierReport',[assign.period],assign.rep));
   if(want.indexOf('bal')>=0) jobs.push(job('getOperatorBalance',[assign.fornitore],assign.bal));
+  if(want.indexOf('giro')>=0)jobs.push(job('giorniGiroDisponibili',[assign.fornitore],assign.giro));
   return jobs;
 }
 function loadAll(){
@@ -789,7 +790,8 @@ function loadAll(){
     cost: function(d){S.cost=d||{};},
     rep:  function(d){S.reports.tutto=d||{};},
     fornitore:FORNITORE_RUOLO[S.role]||((S.user&&S.user.name)||''),
-    bal:  function(d){S.bal=d||null;}
+    bal:  function(d){S.bal=d||null;},
+    giro: function(d){S.giro=d||null;}
   },fails);
   return Promise.all(jobs).then(function(){
     S.loading=false; S.loadedAt=new Date();
@@ -812,7 +814,8 @@ function refresh(silent){
     cost: function(d){if(d)S.cost=d;},
     rep:  function(d){if(d)S.reports[S.period]=d;},
     fornitore:FORNITORE_RUOLO[S.role]||((S.user&&S.user.name)||''),
-    bal:  function(d){if(d)S.bal=d;}
+    bal:  function(d){if(d)S.bal=d;},
+    giro: function(d){if(d)S.giro=d;}
   },fails);
   if(DS||DSREQ)jobs.push(loadDataset(true).catch(function(){}));
   var sc=$('#scroll'),sp=sc?sc.scrollTop:0;
@@ -868,7 +871,9 @@ function viewLogin(){
 
 /* ══════════════ SHELL ══════════════ */
 var NAV={
-  cleaner:[{k:'conta',l:'Conta sporco',s:'Conta',i:'basket'},{k:'att',l:'Attività',s:'Attività',i:'clock'},
+  cleaner:[{k:'conta',l:'Conta sporco',s:'Conta',i:'basket'},
+           {k:'todo',l:'Da fare',s:'Da fare',i:'truck'},
+           {k:'att',l:'Attività',s:'Attività',i:'clock'},
            {k:'conto',l:'Il tuo conto',s:'Conto',i:'euro'}],
   runner:[{k:'todo',l:'Da fare',s:'Da fare',i:'truck'},{k:'att',l:'Attività',s:'Attività',i:'clock'},
           {k:'conto',l:'Il tuo conto',s:'Conto',i:'euro'}],
@@ -1108,7 +1113,112 @@ function saveDirty(){
   }).catch(writeFail('Non registrato',render));
 }
 
-/* ══════════════ MATTEO — DA FARE ══════════════ */
+/* ══════════════ GIRO DELLO SCAMBIO BIANCHERIA ══════════════
+   5 € IN PIU' oltre alla pulizia o al check-in, a chi porta lo sporco da Said e
+   riporta il pulito. Non nasce dal movimento: il giro si fa quando Alessandro lo
+   chiede, quindi lo dichiara chi l'ha fatto.
+   Si puo' dichiarare SOLO nei giorni in cui quella persona ha registrato un
+   ritiro o una consegna: portare lo sporco da Said e' il ritiro, riportare il
+   pulito e' la consegna. Nei giorni in cui non risulta niente, la card non
+   compare proprio. L'elenco dei giorni buoni arriva dal backend
+   (giorniGiroDisponibili), che rifa' lo stesso controllo prima di scrivere:
+   l'interfaccia da sola non basta, la APP_KEY e' nel sorgente pubblico. */
+function giroGiorni(){return (S.giro&&S.giro.giorni)||[];}
+function giroLiberi(){return giroGiorni().filter(function(g){return !g.fatto;});}
+function giroOggi(){
+  var oggi=toItDate(toIso(new Date())),v=null;
+  giroGiorni().forEach(function(g){if(g.data===oggi)v=g;});
+  return v;
+}
+function giroEtichetta(dataIt){
+  var oggi=toItDate(toIso(new Date())),ieri=toItDate(toIso(new Date(Date.now()-86400000)));
+  if(dataIt===oggi)return 'Oggi';
+  if(dataIt===ieri)return 'Ieri';
+  return dataIt;
+}
+function giroCard(){
+  if(S.role!=='cleaner'&&S.role!=='runner')return '';
+  var o=giroOggi(),liberi=giroLiberi();
+  if(o&&o.fatto)return '<div class="card pad stack g8">'+
+    '<div class="fs13 dim b">GIRO DELLO SCAMBIO BIANCHERIA</div>'+
+    '<div class="note ok">Segnato oggi: '+eur0(o.importo||5)+' in più. '+
+    'Uno solo al giorno, anche se hai fatto tutte e due le case.</div></div>';
+  if(!liberi.length)return '';
+  var soloOggi=liberi.length===1&&o&&!o.fatto;
+  return '<div class="card pad stack g10">'+
+    '<div class="fs13 dim b">GIRO DELLO SCAMBIO BIANCHERIA</div>'+
+    '<button class="btn btn-p btn-xl" data-act="giro">'+ic('truck',20)+
+    ' Ho fatto il giro da Said</button>'+
+    '<div class="hint">Premilo <b>solo se ci sei andato tu</b>: sono <b>5 €</b> in più, '+
+    'oltre alla pulizia o al check-in. Uno al giorno, anche se hai fatto tutte e due le case.'+
+    (soloOggi?'':' Puoi segnare anche un giro dei giorni scorsi.')+'</div></div>';
+}
+function giroAdminCard(){
+  var oggi=toItDate(toIso(new Date())),fatti={};
+  ['Matteo','Eddie'].forEach(function(f){
+    var u=((S.sup||{})[f]||{}).ultimeVoci||[];
+    u.forEach(function(v){if(v.tipo==='Logistica'&&v.data===oggi)fatti[f]=v;});
+  });
+  return '<div class="card pad stack g10">'+
+    '<div class="fs13 dim b">GIRO BIANCHERIA DI OGGI</div>'+
+    '<div class="fs14 muted">Se da Said ci sei andato tu, non spetta niente a nessuno. '+
+    "Se c'è andato uno di loro e non l'ha segnato, assegnalo qui: sono 5 € in più.</div>"+
+    '<div class="wrap">'+['Matteo','Eddie'].map(function(f){
+      return fatti[f]
+        ? '<span class="chip acc">'+f+' · già segnato, '+eur0(fatti[f].importo)+'</span>'
+        : '<button class="pill" data-act="giro-adm" data-f="'+f+'">Assegna a '+f+'</button>';
+    }).join('')+'</div>'+
+    '<div class="fs13 dim">Qui non c\'è nessun vincolo: assegni anche se non risulta '+
+    'nessun movimento a loro nome.</div></div>';
+}
+/* Scelta del giorno. Compare solo se ci sono piu' giorni segnabili: con un solo
+   giorno si salta direttamente alla casa, che e' il caso normale. */
+function giroSheet(f,admin){
+  var liberi=admin?[]:giroLiberi();
+  if(admin||liberi.length<=1){
+    var g=liberi[0]||null;
+    giroCasaSheet(f,g?g.data:toItDate(toIso(new Date())),g?g['case']:null,admin);
+    return;
+  }
+  sheet('Quale giro?',
+    '<p class="muted fs15" style="margin:0">Compaiono solo i giorni in cui hai registrato '+
+    'un ritiro o una consegna.</p>'+
+    '<div class="stack g8">'+liberi.map(function(g,i){
+      var che=[];if(g.ritiro)che.push('ritiro');if(g.consegna)che.push('consegna');
+      return '<button class="btn btn-s btn-xl" data-act="giro-day" data-f="'+esc(f)+'" data-i="'+i+'">'+
+        '<div style="text-align:left;flex:1"><div class="b">'+esc(giroEtichetta(g.data))+'</div>'+
+        '<div class="fs13 dim">'+esc(g['case'].join(' e '))+' · '+esc(che.join(' e '))+'</div></div>'+
+        ic('chev',18)+'</button>';}).join('')+'</div>'+
+    '<button class="btn btn-s" data-act="close-sheet">Annulla</button>');
+}
+function giroCasaSheet(f,data,case_,admin){
+  var lista=(case_&&case_.length)?case_:HOUSES;
+  sheet('Giro biancheria · '+giroEtichetta(data),
+    '<p class="muted fs15" style="margin:0">Su quale casa metto i 5 €? '+
+    'Se il giro ha coperto tutte e due, il compenso resta uno solo: scegli quella da cui sei partito.</p>'+
+    '<div class="stack g8">'+lista.map(function(p){
+      return '<button class="btn btn-s btn-xl" data-act="giro-go" data-f="'+esc(f)+'" data-h="'+p+'" '+
+        'data-d="'+esc(data)+'"'+(admin?' data-adm="1"':'')+'>'+
+        '<span class="dot" style="background:var(--'+p.toLowerCase()+')"></span> '+p+
+        ' · '+esc(NICE[p])+'</button>';}).join('')+'</div>'+
+    '<div class="fs13 dim">Data: '+esc(data)+'. Hai 30 secondi per annullare.</div>'+
+    '<button class="btn btn-s" data-act="close-sheet">Annulla</button>');
+}
+/* Interruttore dentro la conferma di ritiro e consegna: e' il momento in cui il
+   giro ce l'hanno in testa. Non si apre una seconda finestra sopra l'annullo a
+   30 secondi, che coprirebbe i tasti. */
+function giroToggle(){
+  if(S.role!=='cleaner'&&S.role!=='runner')return '';
+  var o=giroOggi();
+  if(o&&o.fatto)return '<div class="fs13 dim">Il giro di oggi è già segnato.</div>';
+  return '<button class="pill" data-act="giro-flag" aria-pressed="'+(S.giroFlag?'true':'false')+'" '+
+    'style="width:100%;justify-content:center">'+ic('truck',16)+
+    ' Ci sono andato io da Said · +5 €</button>'+
+    '<div class="fs13 dim">Attivalo solo se hai fatto tu il viaggio: '+
+    'sono 5 € in più oltre alla pulizia o al check-in.</div>';
+}
+
+/* ══════════════ MATTEO ED EDDIE — DA FARE ══════════════ */
 function viewTodo(){
   var cards=HOUSES.map(function(p){
     var sporco=totState(p,'Sporco'),pronto=totState(p,'Pronto per ritiro');
@@ -1128,15 +1238,18 @@ function viewTodo(){
         (lav&&giorni(lav)>=GIACENZA_GG?'<span class="chip warn">in lavanderia da '+giorni(lav)+' giorni</span>':'')+'</div>'+
       '<div class="stack g8">'+acts+'</div></div>';
   }).filter(Boolean);
-  if(!cards.length)return '<div class="empty"><div class="ring">'+ic('check',34)+'</div>'+
+  var giro=giroCard();
+  if(!cards.length)return '<div class="stack g14"><div class="empty"><div class="ring">'+ic('check',34)+'</div>'+
     '<div><div class="mid">Tutto a posto</div><div class="fs15 muted" style="margin-top:6px">'+
-    'Nessun ritiro e nessuna consegna in attesa.<br>Tira giù per aggiornare.</div></div></div>';
-  return '<div class="stack g14"><p class="muted fs15" style="margin:0 2px">Da fare adesso:</p>'+cards.join('')+'</div>';
+    'Nessun ritiro e nessuna consegna in attesa.<br>Tira giù per aggiornare.</div></div></div>'+giro+'</div>';
+  return '<div class="stack g14"><p class="muted fs15" style="margin:0 2px">Da fare adesso:</p>'+
+    cards.join('')+giro+'</div>';
 }
 function doPickup(p){
   sheet('Ritiro sporco · '+p,
     '<p class="muted fs15" style="margin:0">Confermi di aver ritirato tutti i '+
     totState(p,'Sporco')+' pezzi sporchi da '+p+' e di portarli in lavanderia?</p>'+
+    giroToggle()+
     '<button class="btn btn-p btn-xl" data-act="pickup-go" data-h="'+p+'">Sì, ritirati</button>'+
     '<button class="btn btn-s" data-act="close-sheet">Annulla</button>');
 }
@@ -1144,6 +1257,7 @@ function doDeliver(p){
   sheet('Consegna pulito · '+p,
     '<p class="muted fs15" style="margin:0">Confermi di aver consegnato i '+
     totState(p,'Pronto per ritiro')+' pezzi puliti dentro '+p+'? Torneranno disponibili in casa.</p>'+
+    giroToggle()+
     '<button class="btn btn-p btn-xl" data-act="deliver-go" data-h="'+p+'">Sì, consegnati</button>'+
     '<button class="btn btn-s" data-act="close-sheet">Annulla</button>');
 }
@@ -1247,14 +1361,15 @@ function viewConto(){
   }).join('');
   return '<div class="stack g14">'+
     '<div class="card pad stack g10">'+
-      '<div class="fs13 dim b">'+(aFavore?'A TUO FAVORE, OGGI':'DA RESTITUIRE AD ALESSANDRO, OGGI')+'</div>'+
+      '<div class="fs13 dim b">'+(aFavore?'A TUO FAVORE, OGGI':'IN CASSA PER MAJO HOUSES, OGGI')+'</div>'+
       '<div class="big num"'+(aFavore?' style="color:var(--acc)"':'')+'>'+eur0(Math.abs(s))+'</div>'+
       '<div class="wrap">'+HOUSES.map(function(p){
         return '<span class="chip"><span class="dot" style="background:var(--'+p.toLowerCase()+')"></span>'+
           p+' '+eur0((b.byHouse||{})[p]||0)+'</span>';}).join('')+'</div>'+
       '<div class="fs14 muted">'+(aFavore
         ? 'È quello che ti spetta per le voci non ancora saldate.'
-        : 'Hai incassato per conto di Majo Houses più di quanto ti spetti: la differenza va restituita.')+
+        : 'Sono incassi che hai raccolto per Majo Houses e che al momento superano '+
+          'quello che ti spetta. Si compensano con i prossimi servizi.')+
       '</div>'+
       '<div class="fs13 dim">Le voci compaiono entro qualche ora dal servizio. '+
       'Se ne manca una, segnalala ad Alessandro.</div>'+
@@ -1303,6 +1418,22 @@ function viewIncassi(){
         '<div class="v num">'+eur0(r.total)+'</div></div>';}).join('')+'</div>'
       :'<div class="card pad muted fs15">Nessuna voce in sospeso.</div>')+
   '</div>';
+}
+/* Un solo punto di scrittura del giro: lo chiama il tasto in Da fare, la
+   conferma di ritiro e consegna, e l'assegnazione dal pannello admin. */
+function segnaGiro(f,casa,data,admin,silenzioso){
+  return api('registraGiroBiancheria',f,casa,data||'',!!admin).then(function(r){
+    if(r&&r.gia){toast('Il giro era già segnato','wait',f+' · '+esc(r.data||''));refresh(true);return;}
+    if(r&&r.senzaMovimenti){
+      toast('Giro non segnato','bad','Quel giorno non risulta nessun ritiro o consegna a tuo nome');
+      refresh(true);return;}
+    if(!r||r.ok===false)throw new Error(errIt(r));
+    toast('Giro segnato'+(admin?' a '+f:''),null,eur0(r.importo)+' su '+r.casa+' · '+r.data);
+    showUndo('Giro biancheria · '+f,function(){
+      return api('deleteSupplierCost',Number(r.riga),
+        {data:r.data,fornitore:r.fornitore,importo:r.importo});});
+    refresh(true);
+  }).catch(writeFail('Giro non segnato'));
 }
 function settleLav(p){
   var c=S.cost||{},amt=p==='ALL'?(c.totalDue||0):((c.byHouse||{})[p]||{}).due||0;
@@ -1392,6 +1523,7 @@ function viewHome(){
     (supRows?'<div class="card">'+supRows+'</div>':'')+
     (lav?'<div class="wrap">'+lav+'</div>':'')+
     '<div class="sec-t">Pronte al check-in</div>'+caps+
+    giroAdminCard()+
     '<div class="between" style="margin-top:4px"><div class="sec-t" style="margin:0">Ultime operazioni</div>'+
       '<button class="btn btn-sm btn-s" data-act="tab" data-t="log">Tutto il registro</button></div>'+
     (ops.length?'<div class="card">'+ops.map(opRow).join('')+'</div>':'<div class="card pad muted fs15">Nessuna operazione.</div>')+
@@ -2354,22 +2486,28 @@ document.addEventListener('click',function(e){
     case 'save-dirty-go': saveDirty();break;
     case 'save-clean': chiediConferma('save-clean-go','dichiarando');break;
     case 'save-clean-go': saveClean();break;
-    case 'pickup': closeSheet();doPickup(d.h);break;
-    case 'deliver': closeSheet();doDeliver(d.h);break;
+    case 'pickup': closeSheet();S.giroFlag=false;doPickup(d.h);break;
+    case 'deliver': closeSheet();S.giroFlag=false;doDeliver(d.h);break;
     case 'pickup-go':{
       var p1=d.h,n1=totState(p1,'Sporco');closeSheet();
+      var gf1=S.giroFlag;S.giroFlag=false;
       api(S.role==='admin'?'adminPickup':'registerBulkPickup',p1,S.role).then(function(r){
         if(r&&r.ok===false)throw new Error(errIt(r));
         toast('Ritirati '+pz(n1)+' da '+p1);
+        if(gf1&&FORNITORE_RUOLO[S.role])
+          setTimeout(function(){segnaGiro(FORNITORE_RUOLO[S.role],p1,'',false);},900);
         if(r&&r.batchId)showUndo('Ritiro da '+p1,function(){return api('undoOp',r.batchId,S.role);});
         refresh(true);
       }).catch(writeFail('Non registrato'));
       break;}
     case 'deliver-go':{
       var p2=d.h,n2=totState(p2,'Pronto per ritiro');closeSheet();
+      var gf2=S.giroFlag;S.giroFlag=false;
       api(S.role==='admin'?'adminDeliver':'registerBulkDelivery',p2,S.role).then(function(r){
         if(r&&r.ok===false)throw new Error(errIt(r));
         toast('Consegnati '+pz(n2)+' a '+p2);
+        if(gf2&&FORNITORE_RUOLO[S.role])
+          setTimeout(function(){segnaGiro(FORNITORE_RUOLO[S.role],p2,'',false);},900);
         if(r&&r.batchId)showUndo('Consegna a '+p2,function(){return api('undoOp',r.batchId,S.role);});
         refresh(true);
       }).catch(writeFail('Non registrato'));
@@ -2398,6 +2536,20 @@ document.addEventListener('click',function(e){
         if(r&&r.batchId)showUndo('Dichiarazione '+p4,function(){return api('undoOp',r.batchId,'admin');});
         refresh(true);
       }).catch(writeFail('Non registrato'));
+      break;}
+    case 'giro': closeSheet();giroSheet(FORNITORE_RUOLO[S.role]||'',false);break;
+    case 'giro-adm': closeSheet();giroSheet(d.f,true);break;
+    case 'giro-day':{
+      var gg=giroLiberi()[Number(d.i)];closeSheet();
+      if(gg)giroCasaSheet(d.f,gg.data,gg['case'],false);
+      break;}
+    case 'giro-flag':
+      S.giroFlag=!S.giroFlag;
+      t.setAttribute('aria-pressed',String(S.giroFlag));
+      break;
+    case 'giro-go':{
+      var gf=d.f,gh=d.h,gd=d.d,ga=d.adm==='1';closeSheet();
+      segnaGiro(gf,gh,gd,ga);
       break;}
     case 'settle-lav': closeSheet();settleLav(d.p);break;
     case 'settle-lav-go':{
