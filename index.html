@@ -502,7 +502,7 @@ var S={
   loading:false, loadedAt:null, err:null,
   inv:null, dash:null, sup:null, cost:null, reports:{}, users:null,
   draft:{}, period:'tutto', logLimit:30, ops:null, openOp:null, extraTarget:null,
-  bal:null, balLimit:20, giro:null, giroFlag:false,
+  bal:null, balLimit:20, giro:null, giroFlag:false, giroChi:null,
   rep:{g:'mese',path:[],sel:null}
 };
 var DEMO=/(^|[#&?])demo/.test(location.hash+location.search);
@@ -646,6 +646,7 @@ var I={
   plus:'<path d="M12 5v14M5 12h14"/>',
   minus:'<path d="M5 12h14"/>',
   check:'<path d="M4 12.5l5 5L20 6.5"/>',
+  checkbig:'<circle cx="12" cy="12" r="8.6"/><path d="M8 12.3l2.8 2.8L16.2 9.4"/>',
   x:'<path d="M6 6l12 12M18 6L6 18"/>',
   chev:'<path d="M9 6l6 6-6 6"/>',
   back:'<path d="M15 6l-6 6 6 6"/>',
@@ -1208,6 +1209,15 @@ function giroCasaSheet(f,data,case_,admin){
    giro ce l'hanno in testa. Non si apre una seconda finestra sopra l'annullo a
    30 secondi, che coprirebbe i tasti. */
 function giroToggle(){
+  /* Admin: i movimenti li registra spesso Alessandro anche quando il viaggio
+     l'ha fatto un altro. Il ruolo scritto nel log resta 'admin', quindi il
+     tasto non comparirebbe mai a Matteo: qui si assegna nello stesso gesto. */
+  if(S.role==='admin')return '<div class="fs13 dim b">CHI HA FATTO IL GIRO DA SAID</div>'+
+    '<div class="wrap">'+[['','Io'],['Matteo','Matteo'],['Eddie','Eddie']].map(function(x){
+      return '<button class="pill" data-act="giro-chi" data-f="'+x[0]+'" aria-pressed="'+
+        ((S.giroChi||'')===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>'+
+    '<div class="fs13 dim">Se ci sei andato tu non viene registrato niente. '+
+    'Altrimenti sono 5 € in più a chi indichi, con la data di oggi.</div>';
   if(S.role!=='cleaner'&&S.role!=='runner')return '';
   var o=giroOggi();
   if(o&&o.fatto)return '<div class="fs13 dim">Il giro di oggi è già segnato.</div>';
@@ -1239,7 +1249,7 @@ function viewTodo(){
       '<div class="stack g8">'+acts+'</div></div>';
   }).filter(Boolean);
   var giro=giroCard();
-  if(!cards.length)return '<div class="stack g14"><div class="empty"><div class="ring">'+ic('check',34)+'</div>'+
+  if(!cards.length)return '<div class="stack g14"><div class="empty"><div class="ring">'+ic('checkbig',34)+'</div>'+
     '<div><div class="mid">Tutto a posto</div><div class="fs15 muted" style="margin-top:6px">'+
     'Nessun ritiro e nessuna consegna in attesa.<br>Tira giù per aggiornare.</div></div></div>'+giro+'</div>';
   return '<div class="stack g14"><p class="muted fs15" style="margin:0 2px">Da fare adesso:</p>'+
@@ -2486,28 +2496,32 @@ document.addEventListener('click',function(e){
     case 'save-dirty-go': saveDirty();break;
     case 'save-clean': chiediConferma('save-clean-go','dichiarando');break;
     case 'save-clean-go': saveClean();break;
-    case 'pickup': closeSheet();S.giroFlag=false;doPickup(d.h);break;
-    case 'deliver': closeSheet();S.giroFlag=false;doDeliver(d.h);break;
+    case 'pickup': closeSheet();S.giroFlag=false;S.giroChi=null;doPickup(d.h);break;
+    case 'deliver': closeSheet();S.giroFlag=false;S.giroChi=null;doDeliver(d.h);break;
     case 'pickup-go':{
       var p1=d.h,n1=totState(p1,'Sporco');closeSheet();
-      var gf1=S.giroFlag;S.giroFlag=false;
+      var gf1=S.giroFlag,gc1=S.giroChi;S.giroFlag=false;S.giroChi=null;
       api(S.role==='admin'?'adminPickup':'registerBulkPickup',p1,S.role).then(function(r){
         if(r&&r.ok===false)throw new Error(errIt(r));
         toast('Ritirati '+pz(n1)+' da '+p1);
         if(gf1&&FORNITORE_RUOLO[S.role])
           setTimeout(function(){segnaGiro(FORNITORE_RUOLO[S.role],p1,'',false);},900);
+        if(gc1&&S.role==='admin')
+          setTimeout(function(){segnaGiro(gc1,p1,'',true);},900);
         if(r&&r.batchId)showUndo('Ritiro da '+p1,function(){return api('undoOp',r.batchId,S.role);});
         refresh(true);
       }).catch(writeFail('Non registrato'));
       break;}
     case 'deliver-go':{
       var p2=d.h,n2=totState(p2,'Pronto per ritiro');closeSheet();
-      var gf2=S.giroFlag;S.giroFlag=false;
+      var gf2=S.giroFlag,gc2=S.giroChi;S.giroFlag=false;S.giroChi=null;
       api(S.role==='admin'?'adminDeliver':'registerBulkDelivery',p2,S.role).then(function(r){
         if(r&&r.ok===false)throw new Error(errIt(r));
         toast('Consegnati '+pz(n2)+' a '+p2);
         if(gf2&&FORNITORE_RUOLO[S.role])
           setTimeout(function(){segnaGiro(FORNITORE_RUOLO[S.role],p2,'',false);},900);
+        if(gc2&&S.role==='admin')
+          setTimeout(function(){segnaGiro(gc2,p2,'',true);},900);
         if(r&&r.batchId)showUndo('Consegna a '+p2,function(){return api('undoOp',r.batchId,S.role);});
         refresh(true);
       }).catch(writeFail('Non registrato'));
@@ -2543,6 +2557,11 @@ document.addEventListener('click',function(e){
       var gg=giroLiberi()[Number(d.i)];closeSheet();
       if(gg)giroCasaSheet(d.f,gg.data,gg['case'],false);
       break;}
+    case 'giro-chi':
+      S.giroChi=d.f||null;
+      Array.prototype.forEach.call(document.querySelectorAll('[data-act=giro-chi]'),function(b){
+        b.setAttribute('aria-pressed',String(b.dataset.f===(S.giroChi||'')));});
+      break;
     case 'giro-flag':
       S.giroFlag=!S.giroFlag;
       t.setAttribute('aria-pressed',String(S.giroFlag));
