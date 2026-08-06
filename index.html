@@ -72,7 +72,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo','setOpDate'];
+var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo','setOpDate','getOperatorBalance'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -492,6 +492,9 @@ var TARIFFE={
   Said:[{l:'Extra',v:5,tipo:'Extra'},{l:'Altro',v:10,tipo:'Altro'}]
 };
 var EXTRA_STEP=5;
+/* Nome con cui l'operatore compare nel foglio 'Costi fornitori'. Serve a chiedere
+   al backend il SOLO conto suo: getSupplierSummary li restituisce tutti e tre. */
+var FORNITORE_RUOLO={cleaner:'Eddie',runner:'Matteo',lavanderia:'Said'};
 
 /* ══════════════ STATO ══════════════ */
 var S={
@@ -499,6 +502,7 @@ var S={
   loading:false, loadedAt:null, err:null,
   inv:null, dash:null, sup:null, cost:null, reports:{}, users:null,
   draft:{}, period:'tutto', logLimit:30, ops:null, openOp:null, extraTarget:null,
+  bal:null, balLimit:20,
   rep:{g:'mese',path:[],sel:null}
 };
 var DEMO=/(^|[#&?])demo/.test(location.hash+location.search);
@@ -752,7 +756,7 @@ function needs(role){
      di Costi. Una chiamata in meno nella raffica di accesso. */
   if(role==='admin')return ['inv','dash','sup','cost'];
   if(role==='lavanderia')return ['inv','cost','dash'];
-  return ['inv','dash'];
+  return ['inv','dash','bal'];
 }
 /* Ogni chiamata ha il suo catch e risolve comunque: un fallimento singolo non deve
    affondare l'intera raffica. Se, per esempio, le funzioni fornitori non sono nella
@@ -771,6 +775,7 @@ function loadJobs(want,assign,fails){
   if(want.indexOf('sup')>=0) jobs.push(job('getSupplierSummary',[],assign.sup));
   if(want.indexOf('cost')>=0)jobs.push(job('getCostSummary',[],assign.cost));
   if(want.indexOf('rep')>=0) jobs.push(job('getSupplierReport',[assign.period],assign.rep));
+  if(want.indexOf('bal')>=0) jobs.push(job('getOperatorBalance',[assign.fornitore],assign.bal));
   return jobs;
 }
 function loadAll(){
@@ -782,7 +787,9 @@ function loadAll(){
     dash: function(d){S.dash=d||{};S.ops=(d&&d.ops)||[];},
     sup:  function(d){S.sup=d||{};},
     cost: function(d){S.cost=d||{};},
-    rep:  function(d){S.reports.tutto=d||{};}
+    rep:  function(d){S.reports.tutto=d||{};},
+    fornitore:FORNITORE_RUOLO[S.role]||((S.user&&S.user.name)||''),
+    bal:  function(d){S.bal=d||null;}
   },fails);
   return Promise.all(jobs).then(function(){
     S.loading=false; S.loadedAt=new Date();
@@ -803,7 +810,9 @@ function refresh(silent){
     dash: function(d){if(d){S.dash=d;S.ops=d.ops||[];}},
     sup:  function(d){if(d)S.sup=d;},
     cost: function(d){if(d)S.cost=d;},
-    rep:  function(d){if(d)S.reports[S.period]=d;}
+    rep:  function(d){if(d)S.reports[S.period]=d;},
+    fornitore:FORNITORE_RUOLO[S.role]||((S.user&&S.user.name)||''),
+    bal:  function(d){if(d)S.bal=d;}
   },fails);
   if(DS||DSREQ)jobs.push(loadDataset(true).catch(function(){}));
   var sc=$('#scroll'),sp=sc?sc.scrollTop:0;
@@ -859,8 +868,10 @@ function viewLogin(){
 
 /* ══════════════ SHELL ══════════════ */
 var NAV={
-  cleaner:[{k:'conta',l:'Conta sporco',s:'Conta',i:'basket'},{k:'att',l:'Attività',s:'Attività',i:'clock'}],
-  runner:[{k:'todo',l:'Da fare',s:'Da fare',i:'truck'},{k:'att',l:'Attività',s:'Attività',i:'clock'}],
+  cleaner:[{k:'conta',l:'Conta sporco',s:'Conta',i:'basket'},{k:'att',l:'Attività',s:'Attività',i:'clock'},
+           {k:'conto',l:'Il tuo conto',s:'Conto',i:'euro'}],
+  runner:[{k:'todo',l:'Da fare',s:'Da fare',i:'truck'},{k:'att',l:'Attività',s:'Attività',i:'clock'},
+          {k:'conto',l:'Il tuo conto',s:'Conto',i:'euro'}],
   lavanderia:[{k:'dich',l:'Dichiara',s:'Dichiara',i:'wash'},{k:'att',l:'Attività',s:'Attività',i:'clock'},
               {k:'inc',l:'Incassi',s:'Incassi',i:'euro'}],
   admin:[{k:'home',l:'Oggi',s:'Oggi',i:'home'},{k:'inv',l:'Inventario',s:'Inventario',i:'box'},
@@ -869,7 +880,7 @@ var NAV={
 };
 var HOUSE_TABS={inv:1,setup:1};
 var TITLES={conta:'Conta sporco',att:'Attività recente',todo:'Da fare',dich:'Dichiara pulito',
-  inc:'I tuoi incassi',home:'Oggi',inv:'Inventario',costi:'Costi',rep:'Report',
+  inc:'I tuoi incassi',conto:'Il tuo conto',home:'Oggi',inv:'Inventario',costi:'Costi',rep:'Report',
   log:'Registro',setup:'Setup'};
 
 function start(role){
@@ -998,6 +1009,7 @@ function render(){
     case 'todo': html=viewTodo();break;
     case 'dich': html=viewDich();break;
     case 'inc': html=viewIncassi();break;
+    case 'conto': html=viewConto();break;
     case 'att': html=viewLogList(false);break;
     case 'home': html=viewHome();break;
     case 'inv': html=viewInv();break;
@@ -1182,6 +1194,82 @@ function saveClean(){
     if(r&&r.batchId)showUndo(pz(n)+' su '+p,function(){return api('undoOp',r.batchId,S.role);});
     refresh(true);
   }).catch(writeFail('Non registrato',render));
+}
+
+/* ══════════════ EDDIE / MATTEO — IL TUO CONTO ══════════════
+   Sola lettura: nessun tasto che scrive. Il numero grande e' il saldo alla data
+   di consultazione; sotto, lo storico intervento per intervento.
+   Il saldo e' ALGEBRICO: chi incassa per conto dell'host (tassa di soggiorno,
+   supplementi, contanti lasciati in casa dall'ospite) puo' risultare in negativo.
+   Mai la parola "debito": e' un conto corrente. */
+function balVoci(){
+  var b=S.bal||{};
+  var v=(b.aperte||[]).concat(b.saldati||[]);
+  v.sort(function(a,c){return String(c.iso).localeCompare(String(a.iso));});
+  return v;
+}
+function balMese(iso){
+  if(!iso||iso.length<7)return 'Data non leggibile';
+  return (MESI_L[+iso.slice(5,7)-1]||'')+' '+iso.slice(0,4);
+}
+function balRiga(v){
+  var neg=Number(v.importo)<0;
+  var sotto=[esc(v.casa||'—'),esc(v.data||'')];
+  if(v.note)sotto.push(esc(v.note));
+  return '<div class="lrow"><span class="ledge" style="background:var(--'+
+    String(v.casa||'').toLowerCase()+')"></span>'+
+    '<div class="m"><b>'+esc(v.tipo||'Voce')+'</b><span>'+sotto.join(' · ')+'</span>'+
+    '<span style="color:var(--'+(v.saldatoIl?'ink3':'acc')+')">'+
+    (v.saldatoIl?'pagata il '+esc(v.saldatoIl)
+      :(neg?'ancora nel conto':'ancora da saldare'))+'</span></div>'+
+    '<div class="v num"'+(neg?' style="color:var(--warn)"':'')+'>'+eur0(v.importo)+'</div></div>';
+}
+function viewConto(){
+  var b=S.bal;
+  if(!b||b.ok===false){
+    return '<div class="empty"><div class="ring" style="background:var(--bad-soft);color:var(--bad)">'+
+      ic('alert',34)+'</div><div><div class="mid serif">Conto non caricato</div>'+
+      '<div class="fs15 muted" style="margin-top:6px">'+
+      esc((b&&b.error)||'Riprova fra un momento, o tira giù per aggiornare.')+'</div></div>'+
+      '<button class="btn btn-p btn-xl" data-act="refresh" style="min-width:210px">Riprova</button></div>';
+  }
+  var s=Number(b.saldo)||0,aFavore=s>=0;
+  var voci=balVoci(),lim=S.balLimit||20,mostra=voci.slice(0,lim);
+  var ordine=[],grp={};
+  mostra.forEach(function(v){
+    var m=balMese(v.iso);
+    if(!grp[m]){grp[m]=[];ordine.push(m);}
+    grp[m].push(v);
+  });
+  var storico=ordine.map(function(m){
+    return '<div class="stack g6"><div class="fs13 dim b">'+esc(m.toUpperCase())+'</div>'+
+      '<div class="card">'+grp[m].map(balRiga).join('')+'</div></div>';
+  }).join('');
+  return '<div class="stack g14">'+
+    '<div class="card pad stack g10">'+
+      '<div class="fs13 dim b">'+(aFavore?'A TUO FAVORE, OGGI':'DA RESTITUIRE AD ALESSANDRO, OGGI')+'</div>'+
+      '<div class="big num"'+(aFavore?' style="color:var(--acc)"':'')+'>'+eur0(Math.abs(s))+'</div>'+
+      '<div class="wrap">'+HOUSES.map(function(p){
+        return '<span class="chip"><span class="dot" style="background:var(--'+p.toLowerCase()+')"></span>'+
+          p+' '+eur0((b.byHouse||{})[p]||0)+'</span>';}).join('')+'</div>'+
+      '<div class="fs14 muted">'+(aFavore
+        ? 'È quello che ti spetta per le voci non ancora saldate.'
+        : 'Hai incassato per conto di Majo Houses più di quanto ti spetti: la differenza va restituita.')+
+      '</div>'+
+      '<div class="fs13 dim">Le voci compaiono entro qualche ora dal servizio. '+
+      'Se ne manca una, segnalala ad Alessandro.</div>'+
+    '</div>'+
+    (voci.length
+      ? '<div class="sec-t">Storico degli interventi</div>'+storico+
+        (voci.length>mostra.length
+          ? '<button class="btn btn-s" data-act="more-bal">Mostra altre voci</button>':'')+
+        '<div class="fs13 dim">'+(voci.length>mostra.length
+          ? n0(mostra.length)+' voci su '+n0(voci.length)
+          : n0(voci.length)+(voci.length===1?' voce':' voci'))+
+        (b.dal?' · dal '+esc(b.dal):'')+'. Gli importi in negativo sono soldi incassati per conto '+
+        'di Majo Houses: si sottraggono dal conto.</div>'
+      : '<div class="card pad muted fs15">Nessuna voce registrata.</div>')+
+  '</div>';
 }
 
 /* ══════════════ SAID — INCASSI ══════════════ */
@@ -2496,6 +2584,7 @@ document.addEventListener('click',function(e){
         refresh(true);
       }).catch(writeFail('Non spostata'));
       break;
+    case 'more-bal': S.balLimit=(S.balLimit||20)+30; render(); break;
     case 'more-log':
       S.logLimit=Math.min(200,S.logLimit+50);
       api('getRecentOps',S.logLimit).then(function(o){S.ops=o||S.ops;render();})
