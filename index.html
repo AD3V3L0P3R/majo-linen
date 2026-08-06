@@ -72,7 +72,7 @@ var API_URL='https://script.google.com/macros/s/AKfycbxJONR6CoZSP-mgaoCLE6ZEBJmv
 var API_KEY='MajoLinen_K9x2Pq7Lm4Rt8Wv3Zb6Nc1Hd5Fg';
 var google={script:{}};
 (function(){
-var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo'];
+var FNS=['getCostDataset','whoAmI','checkPassword','getInventory','getUsersSafe','addUser','updateUser','deleteUser','registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery','undoMovements','getMovements','getCostSummary','getLaunderyCosts','settleCosts','undoSettle','updateTotal','reconcileItem','adminPickup','adminClean','adminDeliver','getRecentOps','getDashboard','undoOp','addSupplierCost','deleteSupplierCost','getSupplierSummary','settleSupplierCosts','undoSupplierSettle','getSupplierReport','moveDeclaration','annullaIncassoMatteo','setOpDate'];
   function makeRunner(){
     var ok=function(){},ko=function(e){console.error('API error:',e);};
     var r={};
@@ -520,7 +520,7 @@ function ssDel(k){try{sessionStorage.removeItem(k);}catch(e){}delete MEM[k];}
 var WRITE_FNS=['registerBulkDirty','registerBulkPickup','registerBulkClean','registerBulkDelivery',
   'undoOp','moveDeclaration','settleCosts','undoSettle','settleSupplierCosts','undoSupplierSettle',
   'addSupplierCost','deleteSupplierCost','updateTotal','reconcileItem','adminPickup','adminClean',
-  'adminDeliver','addUser','updateUser','deleteUser','annullaIncassoMatteo'];
+  'adminDeliver','addUser','updateUser','deleteUser','annullaIncassoMatteo','setOpDate'];
 var INFLIGHT={};
 /* La chiave e' funzione + argomenti: Eddie che registra Majo e poi Nievo fa due
    scritture legittime, e non devono annullarsi a vicenda. Si scarta solo lo
@@ -1965,15 +1965,26 @@ function opRow(op){
     '<div class="v num'+(op.undone?' dim':'')+'">'+(op.pieces||0)+'</div>'+
     '<span class="dim">'+ic('chev',18)+'</span></button>';
 }
+/* I blocchi giornalieri scendono in ordine di data, dal piu' recente al piu'
+   vecchio. Serve dopo una correzione di data: senza, l'operazione retrodatata
+   resterebbe in cima con l'etichetta del giorno prima sopra "Oggi", perche'
+   il backend restituisce le operazioni in ordine di inserimento. Dentro ogni
+   giorno l'ordine di inserimento resta intatto. */
 function giorniBlocchi(ops){
   var groups={},order=[];
   ops.forEach(function(o){
     var d=parseTs(o.ts),key=d?toIso(d):'—';
     if(!groups[key]){groups[key]=[];order.push(key);}
     groups[key].push(o);});
+  order.sort(function(a,b){
+    if(a===b)return 0;
+    if(a==='—')return 1;      /* data illeggibile: sempre in fondo */
+    if(b==='—')return -1;
+    return a<b?1:-1;
+  });
   var today=toIso(new Date()),yest=toIso(new Date(Date.now()-86400000));
   return order.map(function(k){
-    var lab=k===today?'Oggi':k===yest?'Ieri':toItDate(k);
+    var lab=k===today?'Oggi':k===yest?'Ieri':(k==='—'?'Data non leggibile':toItDate(k));
     return '<div class="stack g6"><div class="fs13 dim b">'+esc(lab).toUpperCase()+'</div>'+
       '<div class="card">'+groups[k].map(opRow).join('')+'</div></div>';}).join('');
 }
@@ -2031,6 +2042,12 @@ function opSheet(id){
     return '<div class="between fs14" style="padding:5px 0"><span>'+esc(SHORT[x.item]||x.item)+'</span>'+
       '<span class="dim">'+esc(x.from)+' → '+esc(x.to)+'</span><b class="num">'+(x.qty||0)+'</b></div>';}).join('');
   var notes=(op.notes||[]).filter(function(n){return n&&!/^UNDO/.test(n);});
+  /* La data si corregge solo su conta sporco, ritiro e consegna. Le dichiarazioni
+     della lavanderia generano una riga nel foglio costi, che ha una data propria e
+     nessun batch id: il backend le rifiuta, quindi qui il tasto non compare. */
+  var puoData = S.role==='admin' && !op.undone && !op.isUndo &&
+    op.id && String(op.id).indexOf('OP')===0 &&
+    ['dirty','pickup','delivery'].indexOf(op.kind)>=0;
   sheet(k.l,
     '<div class="card pad stack g8"><div class="between"><div><div class="b7 fs18">'+esc(op.prop||'—')+'</div>'+
       '<div class="fs13 dim">'+esc(op.ts)+' · '+esc(PEOPLE[op.role]||op.role||'')+'</div></div>'+
@@ -2038,9 +2055,62 @@ function opSheet(id){
       (op.undone?'<div class="note">Questa operazione è già stata annullata.</div>':'')+
       '<div class="hr"></div>'+items+'</div>'+
     (notes.length?'<div class="note">'+esc(notes.join('\n'))+'</div>':'')+
+    (puoData?'<button class="btn btn-s btn-xl" id="opdate-btn">'+ic('cal',20)+' Correggi la data</button>'+
+      '<div class="fs13 dim">Serve quando registri al posto di Matteo un ritiro o una consegna '+
+      'avvenuti il giorno prima.</div>':'')+
     (op.undoable?'<button class="btn btn-s btn-xl" data-act="undo-op" data-b="'+esc(op.id)+'">'+ic('undo',20)+' Annulla questa operazione</button>':'')+
     (op.kind==='clean'&&!op.undone?'<button class="btn btn-s" data-act="move-decl" data-b="'+esc(op.id)+'">'+
-      "Sposta all'altra casa</button><div class=\"fs13 dim\">Da usare se Said ha dichiarato i pezzi sulla casa sbagliata.</div>":''));
+      "Sposta all'altra casa</button><div class=\"fs13 dim\">Da usare se Said ha dichiarato i pezzi sulla casa sbagliata.</div>":''),
+    {after:function(){
+      var b=document.getElementById('opdate-btn');
+      if(b)b.onclick=function(){setOpDateSheet(op);};
+    }});
+}
+/* Correzione della data di un'operazione. Cambia SOLO il giorno scritto nel
+   registro: inventario, quantita' e batch id restano quelli, quindi l'annullo
+   continua a funzionare come prima. L'ora resta l'originale, perche' per ritiri
+   e consegne conta il giorno. Il tasto di conferma si aggancia dentro la
+   callback "after" di sheet(): non passa dal listener globale. */
+function setOpDateSheet(op){
+  var d=parseTs(op.ts)||new Date();
+  var maxIso=toIso(new Date());
+  var minD=new Date(); minD.setDate(minD.getDate()-30);
+  var minIso=toIso(minD);
+  var prop=toIso(new Date(d.getTime()-86400000));   /* proposta: il giorno prima */
+  if(prop<minIso)prop=minIso;
+  if(prop>maxIso)prop=maxIso;
+  var k=KINDS[op.kind]||KINDS.other;
+  sheet('Correggi la data',
+    '<div class="card pad stack g6"><div class="b7 fs18">'+esc(k.l)+' · '+esc(op.prop||'—')+'</div>'+
+      '<div class="fs14 muted">Registrata il '+esc(op.ts||'')+' · '+pz(op.pieces||0)+'</div></div>'+
+    '<label class="field"><span class="fs13 dim b" style="display:block;margin-bottom:6px">'+
+      'GIORNO IN CUI È AVVENUTA</span>'+
+      '<input class="input" id="od-date" type="date" min="'+minIso+'" max="'+maxIso+'" value="'+prop+'"></label>'+
+    '<div class="note">Cambia solo il giorno scritto nel registro. Pezzi, quantità e inventario non si '+
+      "toccano, e l'operazione resta annullabile come prima.</div>"+
+    '<div class="fs13 dim">L\'ora resta quella di prima. Si può tornare indietro al massimo di 30 giorni. '+
+      'Le dichiarazioni della lavanderia non si spostano da qui: la loro data è legata ai costi di Said.</div>'+
+    '<button class="btn btn-p btn-xl" id="od-go">Salva la nuova data</button>'+
+    '<button class="btn btn-s" data-act="close-sheet">Annulla</button>',
+    {after:function(){
+      var go=document.getElementById('od-go');
+      if(!go)return;
+      go.onclick=function(){
+        var inp=document.getElementById('od-date'),v=inp?inp.value:'';
+        if(!v){toast('Scegli una data','bad');return;}
+        go.disabled=true; go.textContent='Salvo…';
+        api('setOpDate',op.id,v,S.role).then(function(r){
+          if(!r||r.ok===false)throw new Error(errIt(r));
+          closeSheet();
+          if(r.invariata)toast('La data era già quella');
+          else toast('Data corretta',null,'dal '+r.from+' al '+r.to);
+          refresh(true);
+        }).catch(function(er){
+          go.disabled=false; go.textContent='Salva la nuova data';
+          writeFail('Data non modificata')(er);
+        });
+      };
+    }});
 }
 
 /* ══════════════ SETUP ══════════════ */
