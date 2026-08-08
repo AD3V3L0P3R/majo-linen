@@ -325,6 +325,9 @@ textarea.input{height:auto;padding:12px 15px;min-height:76px;resize:vertical;lin
 .toast.ok .ic{color:var(--acc)}.toast.bad .ic{color:var(--bad)}.toast.wait .ic{color:var(--warn)}
 .toast .ic{flex:none;display:grid;place-items:center}
 .ring{position:relative;width:44px;height:44px;flex:none}
+/* Solo la rotella del conto alla rovescia dell'annullo va ruotata: parte da
+   ore 12 invece che da ore 3. La regola era su .ring e prendeva anche le
+   icone grandi delle schermate vuote, che finivano girate di 90 gradi. */
 .toast .ring svg{transform:rotate(-90deg)}
 .ring b{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:700}
 .wrap{display:flex;flex-wrap:wrap;gap:8px}
@@ -646,7 +649,6 @@ var I={
   plus:'<path d="M12 5v14M5 12h14"/>',
   minus:'<path d="M5 12h14"/>',
   check:'<path d="M4 12.5l5 5L20 6.5"/>',
-  checkbig:'<circle cx="12" cy="12" r="8.6"/><path d="M8 12.3l2.8 2.8L16.2 9.4"/>',
   x:'<path d="M6 6l12 12M18 6L6 18"/>',
   chev:'<path d="M9 6l6 6-6 6"/>',
   back:'<path d="M15 6l-6 6 6 6"/>',
@@ -1249,7 +1251,7 @@ function viewTodo(){
       '<div class="stack g8">'+acts+'</div></div>';
   }).filter(Boolean);
   var giro=giroCard();
-  if(!cards.length)return '<div class="stack g14"><div class="empty"><div class="ring">'+ic('checkbig',34)+'</div>'+
+  if(!cards.length)return '<div class="stack g14"><div class="empty"><div class="ring">'+ic('check',34)+'</div>'+
     '<div><div class="mid">Tutto a posto</div><div class="fs15 muted" style="margin-top:6px">'+
     'Nessun ritiro e nessuna consegna in attesa.<br>Tira giù per aggiornare.</div></div></div>'+giro+'</div>';
   return '<div class="stack g14"><p class="muted fs15" style="margin:0 2px">Da fare adesso:</p>'+
