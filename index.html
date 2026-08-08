@@ -126,7 +126,13 @@ html[data-theme="light"]{
   --shadow-up:0 -10px 30px -16px rgba(60,40,28,.3);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* Lo sfondo sta anche su html, non solo su body: Android colora la propria
+   barra di navigazione in fondo allo schermo con il colore dell'elemento
+   radice, e senza questa riga resta bianca quando l'app gira a schermo
+   intero. Usa la stessa variabile della barra dell'app, cosi' le due si
+   saldano, e segue da sola il cambio fra tema chiaro e scuro. */
 html,body{margin:0;height:100%}
+html{background:var(--bg)}
 body{
   background:var(--bg); color:var(--ink);
   font-family:"Manrope",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
