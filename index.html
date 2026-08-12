@@ -1358,6 +1358,23 @@ function balRiga(v){
       :(neg?'ancora nel conto':'ancora da saldare'))+'</span></div>'+
     '<div class="v num"'+(neg?' style="color:var(--warn)"':'')+'>'+eur0(v.importo)+'</div></div>';
 }
+/* Perche' il conto non e' aggiornato in tempo reale.
+   Il compenso di un check-in si scrive solo alcune ore dopo l'arrivo:
+   fino ad allora l'orario puo' ancora cambiare, e l'orario decide la
+   tariffa. Senza questa spiegazione una riga che non c'e' ancora sembra
+   una dimenticanza. */
+function quandoSiAggiorna(){
+  if(S.role==='runner')
+    return 'Il conto non si aggiorna subito. Un check-in compare qualche ora dopo '+
+      'l\'arrivo dell\'ospite, di solito in serata: il sistema aspetta che l\'orario '+
+      'sia quello definitivo, perché è l\'orario a decidere il compenso. '+
+      'I viaggi e le voci aggiunte a mano compaiono quando le registra Alessandro. '+
+      'Se il giorno dopo manca ancora qualcosa, scrivilo ad Alessandro.';
+  return 'Il conto non si aggiorna subito. Le voci compaiono qualche ora dopo il '+
+    'servizio, di solito entro sera. Se il giorno dopo ne manca una, '+
+    'scrivilo ad Alessandro.';
+}
+
 function viewConto(){
   var b=S.bal;
   if(!b||b.ok===false){
@@ -1391,8 +1408,7 @@ function viewConto(){
         : 'Sono incassi che hai raccolto per Majo Houses e che al momento superano '+
           'quello che ti spetta. Si compensano con i prossimi servizi.')+
       '</div>'+
-      '<div class="fs13 dim">Le voci compaiono entro qualche ora dal servizio. '+
-      'Se ne manca una, segnalala ad Alessandro.</div>'+
+      '<div class="fs13 dim">'+quandoSiAggiorna()+'</div>'+
     '</div>'+
     (voci.length
       ? '<div class="sec-t">Storico degli interventi</div>'+storico+
