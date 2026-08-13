@@ -1634,8 +1634,20 @@ function costiForn(){
       (last.length?'<div class="hr"></div>'+last.map(function(v2){
         return '<button class="lrow" style="padding:8px 0" data-act="voce" data-f="'+f+'" data-r="'+esc(v2.riga)+'">'+
           '<div class="m"><b>'+esc(v2.tipo)+' · '+esc(v2.casa||'—')+'</b><span>'+esc(v2.data)+
-          (v2.note?' · '+esc(v2.note):'')+'</span></div><div class="v num">'+eur0(v2.importo)+'</div>'+
+          (v2.noteIt||v2.note?' · '+esc(v2.noteIt||v2.note):'')+'</span></div><div class="v num">'+eur0(v2.importo)+'</div>'+
           '<span class="dim">'+ic('chev',18)+'</span></button>';}).join(''):'')+
+      /* Ingresso esplicito all'elenco completo: su un telefono un titolo
+         cliccabile non si scopre, un tasto con la freccia si'. Compare solo se
+         le voci sono piu' delle tre gia' a schermo. Said non ha righe qui: il
+         suo dovuto arriva dal foglio della lavanderia. */
+      (f==='Said'&&!(s.ultimeVoci||[]).length
+        ? '<div class="fs13 dim">Il dettaglio dei pezzi lavati è nel riquadro Lavanderia, qui sopra.</div>'
+        : ((s.ultimeVoci||[]).length>3
+          ? '<button class="lrow" style="padding:8px 0" data-act="voci-tutte" data-f="'+f+'">'+
+            '<div class="m"><b>Vedi tutte le voci</b></div>'+
+            '<div class="v num">'+(s.voci||0)+'</div>'+
+            '<span class="dim">'+ic('chev',18)+'</span></button>'
+          : ''))+
       '<div class="wrap">'+
         (Math.abs(v)>0.005?'<button class="btn btn-p btn-sm" data-act="settle-sup" data-f="'+f+'" style="flex:1">Salda tutto '+f+'</button>':'')+
         '<button class="btn btn-s btn-sm" data-act="add-cost" data-f="'+f+'">'+ic('plus',16)+' Voce</button>'+
@@ -2185,19 +2197,99 @@ function postCost(payload,okMsg,after){
     refresh(true);
   }).catch(writeFail('Non registrato',riabilita));
 }
-function voceSheet(f,riga){
+/* Elenco completo delle voci aperte di un fornitore.
+   Nasce dal fatto che la card ne mostrava tre su quattordici e le altre non
+   erano raggiungibili in nessun modo. I due sottototali separano quello che
+   gli devo da quello che ha incassato per me: il saldo netto da solo non
+   spiega come si e' formato, ed e' il punto in cui ci si perde. */
+function vociSheet(f){
+  var s=(S.sup||{})[f]||{};
+  var voci=(s.ultimeVoci||[]).slice();
+  var dovuto=Number(s.dovuto)||0, neg=dovuto<0;
+  var bhs=s.byHouse||{};
+
+  var compensi=0, incassi=0;
+  voci.forEach(function(v){
+    var n=Number(v.importo)||0;
+    if(n>=0)compensi+=n; else incassi+=n;
+  });
+
+  var testa='<div class="card pad stack g10">'+
+    '<div class="between"><div class="fs14 muted">'+(neg?'Ha incassato per te':'Da pagare')+'</div>'+
+      '<div class="mid num" style="color:var(--'+(neg?'warn':'ink')+')">'+eur0(Math.abs(dovuto))+'</div></div>'+
+    '<div class="wrap">'+HOUSES.map(function(p){
+      return '<span class="chip">'+p+' '+eur0(bhs[p]||0)+'</span>';}).join('')+'</div>'+
+    (f==='Said'?'':'<div class="hr"></div>'+
+      '<div class="between fs14"><span>Compensi</span><b class="num">'+eur0(compensi)+'</b></div>'+
+      '<div class="between fs14"><span>Incassato per te</span><b class="num">'+eur0(incassi)+'</b></div>')+
+    '</div>';
+
+  if(!voci.length){
+    sheet('Voci aperte · '+f, testa+
+      '<div class="fs15 muted">Nessuna voce aperta'+
+      (f==='Said'?': i pezzi lavati stanno nel riquadro Lavanderia.':'.')+'</div>');
+    return;
+  }
+
+  /* Raggruppate per giorno, dal piu' recente, con le stesse intestazioni del
+     Registro: e' l'ordine in cui si ragiona quando si controlla un conto. */
+  var groups={},order=[];
+  voci.forEach(function(v){
+    var k=v.iso||v.data||'—';
+    if(!groups[k]){groups[k]=[];order.push(k);}
+    groups[k].push(v);
+  });
+  var today=toIso(new Date()),yest=toIso(new Date(Date.now()-86400000));
+  var corpo=order.map(function(k){
+    var lab=k===today?'Oggi':k===yest?'Ieri':(k==='—'?'Senza data':toItDate(k));
+    return '<div class="stack g6"><div class="fs13 dim b">'+esc(lab).toUpperCase()+'</div>'+
+      '<div class="card">'+groups[k].map(function(v){
+        var nota=v.noteIt||v.note||'';
+        var azzerata=Number(v.importo)===0&&/non incassat/i.test(String(v.note||''));
+        var sotto=[v.casa||'—'];
+        if(azzerata)sotto.push('pagato con link');
+        else if(nota)sotto.push(nota);
+        if(v.origine)sotto.push(v.origine);
+        return '<button class="lrow" data-act="voce" data-f="'+f+'" data-r="'+esc(v.riga)+'" data-s="1">'+
+          '<span class="ledge" style="background:var(--'+String(v.casa||'').toLowerCase()+')"></span>'+
+          '<div class="m"><b>'+esc(v.tipo||'Voce')+'</b><span>'+esc(sotto.join(' · '))+'</span></div>'+
+          '<div class="v num'+(azzerata?' dim':'')+'">'+eur0(v.importo)+'</div>'+
+          '<span class="dim">'+ic('chev',18)+'</span></button>';}).join('')+'</div></div>';
+  }).join('');
+
+  sheet('Voci aperte · '+f,
+    testa+corpo+
+    (s.troncato?'<div class="note">Mostrate le 100 voci più recenti: ce ne sono altre più vecchie ancora aperte.</div>':'')+
+    '<div class="wrap">'+
+      (Math.abs(dovuto)>0.005?'<button class="btn btn-p btn-xl" data-act="settle-sup" data-f="'+f+'" style="flex:1">Salda tutto '+f+'</button>':'')+
+      '<button class="btn btn-s" data-act="add-cost" data-f="'+f+'">'+ic('plus',16)+' Voce</button>'+
+    '</div>');
+}
+
+/* fromList: la voce e' stata aperta dall'elenco completo. I pannelli non si
+   impilano, quindi l'elenco si e' chiuso: serve un modo per tornarci, e le
+   azioni che modificano la voce devono riaprirlo aggiornato. */
+function voceSheet(f,riga,fromList){
   var v=null;
   ((S.sup||{})[f]||{}).ultimeVoci&&S.sup[f].ultimeVoci.forEach(function(x){if(String(x.riga)===String(riga))v=x;});
   if(!v)return;
+  S._vociBack=fromList?f:null;
+  var azzerata=Number(v.importo)===0&&/non incassat/i.test(String(v.note||''));
   sheet('Voce di '+f,
+    (fromList?'<button class="btn btn-s" data-act="voci-tutte" data-f="'+f+'">'+
+      ic('back',18)+' Torna a tutte le voci</button>':'')+
     '<div class="card pad stack g6"><div class="b7 fs18">'+esc(v.tipo)+' · '+esc(v.casa||'—')+'</div>'+
       '<div class="fs14 muted">'+esc(v.data)+(v.note?' · '+esc(v.note):'')+'</div>'+
-      '<div class="mid num">'+eur0(v.importo)+'</div></div>'+
+      (v.origine?'<div class="fs13 dim">'+esc(v.origine)+'</div>':'')+
+      '<div class="mid num">'+eur0(v.importo)+'</div>'+
+      (azzerata?'<div class="fs14 muted">Incasso tolto dal conto: l\'ospite ha pagato con link.</div>':'')+
+      '</div>'+
     '<button class="btn btn-p btn-xl" data-act="extra-on-voce" data-f="'+f+'" data-r="'+esc(riga)+'">'+
       ic('plus',20)+' Aggiungi un extra a questo intervento</button>'+
-    /* Incasso della tassa di soggiorno scritto in automatico dal greeter sync:
-       se l'ospite non aveva contanti e ha pagato con un link, Matteo non ha
-       incassato niente e quella riga non deve pesare sul suo conto. */
+    /* Incassi scritti in automatico dal greeter sync (tassa di soggiorno,
+       supplemento early/late) o messi a mano (culla, extra): se l'ospite non
+       aveva contanti e ha pagato con un link, Matteo non ha incassato niente e
+       quella riga non deve pesare sul suo conto. */
     (f==='Matteo'&&v.tipo==='Incasso'&&Number(v.importo)!==0
       ? '<button class="btn btn-s" data-act="no-incasso" data-r="'+esc(riga)+'">'+
         ic('x',18)+' Non incassato da Matteo</button>' : '')+
@@ -2210,15 +2302,46 @@ function voceSheet(f,riga){
 /* ══════════════ REGISTRO ══════════════ */
 var KINDS={dirty:{l:'Conteggio sporco',i:'basket',c:'warn'},pickup:{l:'Ritiro sporco',i:'truck',c:'ink2'},
   clean:{l:'Dichiarazione pulito',i:'wash',c:'acc'},delivery:{l:'Consegna pulito',i:'check',c:'acc'},
-  undo:{l:'Annullo',i:'undo',c:'bad'},other:{l:'Operazione',i:'list',c:'ink2'}};
-function opRow(op){
+  undo:{l:'Annullo',i:'undo',c:'bad'},
+  /* Non sono movimenti di biancheria: sono le righe che gli altri moduli
+     scrivono nello stesso foglio per lasciare traccia. Finivano tutte sotto
+     "Operazione", che nel Registro non dice niente. */
+  recon:{l:'Riallineamento inventario',i:'cog',c:'warn'},
+  settle:{l:'Saldo',i:'euro',c:'acc'},
+  settleundo:{l:'Storno saldo',i:'undo',c:'bad'},
+  other:{l:'Operazione',i:'list',c:'ink2'}};
+/* Righe di saldo e di storno: l'importo sta in colonna Costo, e per gli storni
+   solo dentro la nota. Il numero grande a destra deve essere quello, non i
+   pezzi, che li' valgono sempre zero. */
+function opImporto(op){
+  var a=Number(op.amount)||0;
+  if(a) return a;
+  var m=/€\s*(-?[0-9]+(?:[.,][0-9]+)?)/.exec((op.notes||[]).join(' '));
+  return m?Number(String(m[1]).replace(',','.'))||0:0;
+}
+function opValore(op){
+  if(op.kind==='settle'||op.kind==='settleundo') return eur0(opImporto(op));
+  return String(op.pieces||0);
+}
+/* Il riallineamento scrive una riga per articolo: senza il nome dell'articolo
+   nell'elenco si vedrebbero righe identiche con numeri diversi. */
+function opEtichetta(op){
   var k=KINDS[op.kind]||KINDS.other;
+  if(op.kind==='recon'&&op.items&&op.items.length&&op.items[0].item){
+    return k.l+' · '+(SHORT[op.items[0].item]||op.items[0].item);
+  }
+  return k.l;
+}
+function opRow(op){
   var who=PEOPLE[op.role]||op.role||'—';
-  return '<button class="lrow" data-act="op" data-b="'+esc(op.id||'')+'">'+
+  /* data-b porta 'key' e non 'id': le righe scritte fuori dal flusso biancheria
+     (riallineamenti, saldi, storni) non hanno batch, quindi l'id e' nullo e il
+     tasto non apriva niente. */
+  return '<button class="lrow" data-act="op" data-b="'+esc(op.key||op.id||'')+'">'+
     '<span class="ledge" style="background:var(--'+String(op.prop||'').toLowerCase()+')"></span>'+
-    '<div class="m"><b>'+esc(k.l)+(op.undone?' · annullata':'')+'</b>'+
+    '<div class="m"><b>'+esc(opEtichetta(op))+(op.undone?' · annullata':'')+'</b>'+
     '<span>'+esc(op.prop||'—')+' · '+esc(op.ts||'')+' · '+esc(who)+'</span></div>'+
-    '<div class="v num'+(op.undone?' dim':'')+'">'+(op.pieces||0)+'</div>'+
+    '<div class="v num'+(op.undone?' dim':'')+'">'+esc(opValore(op))+'</div>'+
     '<span class="dim">'+ic('chev',18)+'</span></button>';
 }
 /* I blocchi giornalieri scendono in ordine di data, dal piu' recente al piu'
@@ -2256,9 +2379,9 @@ function viewOperatore(){
     'Qui compaiono le operazioni registrate.</div></div></div>';
   var testa=mie.length?'<div class="stack g8"><div class="sec-t">Le tue ultime operazioni</div>'+
     '<div class="card">'+mie.map(function(o){
-      return '<button class="lrow" data-act="op" data-b="'+esc(o.id||'')+'">'+
+      return '<button class="lrow" data-act="op" data-b="'+esc(o.key||o.id||'')+'">'+
         '<span class="ledge" style="background:var(--'+String(o.prop||'').toLowerCase()+')"></span>'+
-        '<div class="m"><b>'+esc((KINDS[o.kind]||KINDS.other).l)+' · '+esc(o.prop||'—')+'</b>'+
+        '<div class="m"><b>'+esc(opEtichetta(o))+' · '+esc(o.prop||'—')+'</b>'+
         '<span>'+esc(o.ts||'')+(o.undone?' · annullata':'')+'</span></div>'+
         '<div class="v num">'+(o.pieces||0)+'</div></button>';}).join('')+'</div>'+
     '<div class="fs13 dim">Se un salvataggio non ti ha dato conferma, guarda qui prima di rifarlo.</div></div>':'';
@@ -2291,13 +2414,53 @@ function viewLogList(admin){
   '</div>';
 }
 function opSheet(id){
-  var op=null;(S.ops||[]).forEach(function(o){if(String(o.id)===String(id))op=o;});
+  var op=null;(S.ops||[]).forEach(function(o){
+    if(String(o.key||o.id)===String(id))op=o;});
   if(!op)return;
   var k=KINDS[op.kind]||KINDS.other;
+  var notes=(op.notes||[]).filter(function(n){return n&&!/^UNDO/.test(n);});
+
+  /* Saldi e storni: la tabella articoli direbbe "PAGAMENTO — → SALDO", che non
+     e' un'informazione. Contano importo, quante voci sono state chiuse e quando. */
+  if(op.kind==='settle'||op.kind==='settleundo'){
+    var chi=/PAGAMENTO ([A-Z]+)|SALDO ([A-Z]+)/.exec((op.items&&op.items[0]&&op.items[0].item)||'');
+    var nome=chi?(chi[1]||chi[2]||''):'';
+    nome=nome?nome.charAt(0)+nome.slice(1).toLowerCase():'';
+    var mv=/\((\d+) voci\)/.exec(notes.join(' '));
+    sheet(k.l+(nome?' · '+nome:''),
+      '<div class="card pad stack g8">'+
+        '<div class="between"><div><div class="b7 fs18">'+
+          esc(op.kind==='settle'?('Pagato'+(nome?' a '+nome:'')):('Saldo annullato'+(nome?' · '+nome:'')))+'</div>'+
+          '<div class="fs13 dim">'+esc(op.ts)+' · '+esc(PEOPLE[op.role]||op.role||'')+'</div></div>'+
+          '<div class="mid num">'+eur0(opImporto(op))+'</div></div>'+
+        (mv?'<div class="hr"></div><div class="between fs14"><span>Voci chiuse</span>'+
+          '<b class="num">'+esc(mv[1])+'</b></div>':'')+
+        (op.prop&&op.prop!=='—'?'<div class="between fs14"><span>Case</span>'+
+          '<b>'+esc(op.prop)+'</b></div>':'')+'</div>'+
+      (notes.length?'<div class="note">'+esc(notes.join('\n'))+'</div>':'')+
+      '<div class="fs13 dim">Un saldo si annulla dalla scheda del fornitore, non da qui.</div>');
+    return;
+  }
+
   var items=(op.items||[]).map(function(x){
     return '<div class="between fs14" style="padding:5px 0"><span>'+esc(SHORT[x.item]||x.item)+'</span>'+
       '<span class="dim">'+esc(x.from)+' → '+esc(x.to)+'</span><b class="num">'+(x.qty||0)+'</b></div>';}).join('');
-  var notes=(op.notes||[]).filter(function(n){return n&&!/^UNDO/.test(n);});
+
+  /* Il riallineamento non e' un movimento: e' una sovrascrittura dei cinque
+     contatori con la conta fisica. Non si annulla e non si ridata. */
+  if(op.kind==='recon'){
+    sheet(k.l,
+      '<div class="card pad stack g8"><div class="between"><div>'+
+        '<div class="b7 fs18">'+esc((op.items&&op.items[0]&&op.items[0].item)||op.prop||'—')+'</div>'+
+        '<div class="fs13 dim">'+esc(op.prop||'—')+' · '+esc(op.ts)+' · '+esc(PEOPLE[op.role]||op.role||'')+'</div></div>'+
+        '<div class="mid num">'+(op.pieces||0)+'</div></div>'+
+        '<div class="hr"></div><div class="fs14 muted">Pezzi totali dopo la conta fisica.</div></div>'+
+      (notes.length?'<div class="note">'+esc(notes.join('\n'))+'</div>':'')+
+      '<div class="fs13 dim">Questa riga ha sovrascritto i contatori con quanto contato a mano. '+
+      'Non si annulla: per correggerla si rifa la conta dal Setup.</div>');
+    return;
+  }
+
   /* La data si corregge solo su conta sporco, ritiro e consegna. Le dichiarazioni
      della lavanderia generano una riga nel foglio costi, che ha una data propria e
      nessun batch id: il backend le rifiuta, quindi qui il tasto non compare. */
@@ -2651,7 +2814,8 @@ document.addEventListener('click',function(e){
       api('addSupplierCost',pay).then(function(){toast(S._forceMsg||'Registrato');S.extraTarget=null;refresh(true);})
         .catch(writeFail('Non registrato'));
       break;}
-    case 'voce': closeSheet();voceSheet(d.f,d.r);break;
+    case 'voce': closeSheet();voceSheet(d.f,d.r,d.s==='1');break;
+    case 'voci-tutte': closeSheet();vociSheet(d.f);break;
     case 'extra-on-voce':{
       var vv=null;((S.sup||{})[d.f]||{}).ultimeVoci&&S.sup[d.f].ultimeVoci.forEach(function(x){
         if(String(x.riga)===String(d.r))vv=x;});
@@ -2665,9 +2829,15 @@ document.addEventListener('click',function(e){
         if(String(x.riga)===String(d.r))ni=x;});
       if(!ni){toast('Voce non piu disponibile','bad');break;}
       S._noInc=d.r;
+      /* Il testo prende la descrizione dalla voce: qui passano tassa di
+         soggiorno, supplementi e voci messe a mano, e dire sempre "tassa di
+         soggiorno" era falso su tutto il resto. */
+      var niDesc=(ni.noteIt||ni.note||'').replace(/\s+/g,' ').trim();
+      if(niDesc.length>70)niDesc=niDesc.slice(0,70)+'…';
       sheet('Non incassato da Matteo',
-        '<div class="card pad stack g6"><div class="fs15">Tolgo dal conto di Matteo la tassa di soggiorno del '+
-          esc(ni.data)+' su '+esc(ni.casa||'—')+', '+eur0(Math.abs(Number(ni.importo)||0))+'.</div>'+
+        '<div class="card pad stack g6"><div class="fs15">Tolgo dal conto di Matteo '+
+          eur0(Math.abs(Number(ni.importo)||0))+' del '+esc(ni.data)+' su '+esc(ni.casa||'—')+
+          (niDesc?': '+esc(niDesc):'')+'.</div>'+
         '<div class="fs14 muted">Il suo compenso per il check-in resta: quello gli spetta comunque. '+
           'La riga non sparisce, resta a zero con la nota.</div></div>'+
         '<button class="btn btn-p btn-xl" data-act="no-incasso-go">Confermo, ha pagato con link</button>'+
@@ -2681,7 +2851,9 @@ document.addEventListener('click',function(e){
         toast(r&&r.modo==='compensata'
           ? 'Saldo gia chiuso: aggiunta una riga di correzione'
           : 'Tolto dal conto di Matteo');
-        S._noInc=null; refresh(true);
+        S._noInc=null;
+        var back=S._vociBack; S._vociBack=null;
+        refresh(true).then(function(){if(back)vociSheet(back);});
       }).catch(writeFail('Non riuscito'));
       break;}
     case 'del-voce':{
@@ -2708,7 +2880,9 @@ document.addEventListener('click',function(e){
           return;
         }
         if(r&&r.ok===false)throw new Error(errIt(r));
-        toast('Voce eliminata');S._delVoce=null;refresh(true);
+        toast('Voce eliminata');S._delVoce=null;
+        var backD=S._vociBack; S._vociBack=null;
+        refresh(true).then(function(){if(backD)vociSheet(backD);});
       }).catch(writeFail('Non eliminata'));
       break;}
     case 'gran': S.rep.g=d.g;S.rep.sel=null;render();break;
