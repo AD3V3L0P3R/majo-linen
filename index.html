@@ -1097,7 +1097,9 @@ function viewConta(){
         'Hai 30 secondi per annullare.':'Usa + e − per contare i pezzi sporchi che hai raccolto in questa casa.')+'</div></div>'+
     '</div>';
 }
-function chiediConferma(act,verbo){
+/* Conferma prima di scrivere. La frase nomina l'azione, la quantita' e la casa,
+   perche' la dichiarazione sulla casa sbagliata e' l'errore ricorrente. */
+function chiediConferma(act,verbo,agg,cta){
   var p=S.house,n=draftTotal(p);
   if(!n)return;
   sheet('Confermi?',
@@ -1106,8 +1108,9 @@ function chiediConferma(act,verbo){
       (THUMB[p]||PHOTOS[p])+'\')"></div>'+
       '<div style="flex:1;min-width:0"><div class="b7 fs18">'+p+'</div>'+
       '<div class="fs13 dim">'+esc(NICE[p])+' · '+esc(ADDR[p])+'</div></div></div>'+
-    '<div class="fs18" style="line-height:1.35">Stai '+esc(verbo)+' <b>'+pz(n)+'</b> su <b>'+p+'</b>.</div>'+
-    '<button class="btn btn-p btn-xl" data-act="'+act+'">Sì, registra su '+p+'</button>'+
+    '<div class="fs18" style="line-height:1.35">Stai per '+esc(verbo)+' <b>'+pz(n)+'</b>'+
+      (agg?' '+esc(agg):'')+' su <b>'+p+'</b>. Confermi?</div>'+
+    '<button class="btn btn-p btn-xl" data-act="'+act+'">Sì, '+esc(cta||'registra')+' su '+p+'</button>'+
     '<button class="btn btn-s" data-act="close-sheet">No, torno indietro</button>');
 }
 function saveDirty(){
@@ -1302,7 +1305,7 @@ function viewDich(){
       '<button class="btn '+(tot?'btn-p':'btn-g')+' btn-xl" data-act="save-clean" '+(tot?'':'disabled')+'>'+
       (tot?'Dichiara '+pz(tot):'Aggiungi almeno un pezzo')+'</button>'+
       '<div class="hint">'+(tot?'Dichiari <b>'+pz(tot)+' lavati</b> per '+p+': da questi maturi <b>'+eur0(eu)+
-        '</b>. Hai 30 secondi per annullare.':'Conta i pezzi che hai lavato e che sono pronti per il ritiro.')+
+        '</b>. Ti chiedo conferma prima di salvare.':'Conta i pezzi che hai lavato e che sono pronti per il ritiro.')+
       '</div></div>'+
     '</div>';
 }
@@ -1319,13 +1322,20 @@ function saveClean(){
       'li ho riallineati automaticamente. Nessun pezzo perso.\n\n'+esc(r.reconciled.join('\n'))+'</div>';
     if(r&&r.unresolved&&r.unresolved.length)warn+='<div class="note bad">Attenzione: alcuni pezzi non tornano '+
       'con l\'inventario. Alessandro è stato avvisato.\n\n'+esc(r.unresolved.join('\n'))+'</div>';
+    var lav=(S.role==='lavanderia');
     sheet('Dichiarazione registrata',
       '<div class="note ok">'+pz(n)+' dichiarati su '+p+' · '+eur0(eu)+' maturati.</div>'+warn+
+      (lav?'<div class="fs13 dim">Se hai sbagliato: apri Attività, tocca questa dichiarazione '+
+        'e annullala da lì. Hai 48 ore di tempo.</div>':'')+
       '<button class="btn btn-p btn-xl" data-act="close-sheet">Chiudi</button>');
-    /* Un solo percorso di annullo: undoOp. Il backend lo protegge (withLock, rifiuto del
+    /* Alla lavanderia l'annullo a 30 secondi NON si mostra. Il toast e' fisso in fondo
+       allo schermo con z-index sopra il foglio di conferma: il tasto "Annulla" finiva
+       esattamente dove il pollice va a cercare "Chiudi", e le dichiarazioni annullate e
+       rifatte identiche nel foglio costi vengono da li'. L'annullo resta, ma nel Registro.
+       Un solo percorso di annullo: undoOp. Il backend lo protegge (withLock, rifiuto del
        secondo annullo, pre-check inventario) e ricostruisce i movimenti dal log, quindi
        funziona anche sulle dichiarazioni riconciliate. undoClean non ha guardie. */
-    if(r&&r.batchId)showUndo(pz(n)+' su '+p,function(){return api('undoOp',r.batchId,S.role);});
+    if(r&&r.batchId&&!lav)showUndo(pz(n)+' su '+p,function(){return api('undoOp',r.batchId,S.role);});
     refresh(true);
   }).catch(writeFail('Non registrato',render));
 }
@@ -2464,6 +2474,26 @@ function opSheet(id){
   /* La data si corregge solo su conta sporco, ritiro e consegna. Le dichiarazioni
      della lavanderia generano una riga nel foglio costi, che ha una data propria e
      nessun batch id: il backend le rifiuta, quindi qui il tasto non compare. */
+  /* Annullo dal Registro. Per la lavanderia vale solo sulle proprie dichiarazioni e
+     solo per 48 ore: dopo, quella dichiarazione puo' essere gia' rientrata in un saldo,
+     e lo storno arriverebbe come una sorpresa dentro il conto di Said. Il foglio
+     "Costi lavanderia" non porta il batch id, quindi il "gia' saldata" non e'
+     verificabile: le 48 ore sono l'approssimazione prudente. L'admin non ha limiti.
+     E' un vincolo di interfaccia, non di sicurezza: undoOp si fida del ruolo che
+     arriva dal client, come tutto il resto dell'app. */
+  var puoUndo = !!op.undoable, notaUndo = '';
+  if(puoUndo && S.role==='lavanderia'){
+    if(op.kind!=='clean' || op.role!=='lavanderia'){
+      puoUndo=false;
+      notaUndo='Questa dichiarazione non l\'hai registrata tu. Per correggerla scrivi ad Alessandro.';
+    }else{
+      var dOp=parseTs(op.ts), oreOp=dOp?(Date.now()-dOp.getTime())/3600000:null;
+      if(oreOp===null||oreOp>48){
+        puoUndo=false;
+        notaUndo='Per correggere questa dichiarazione scrivi ad Alessandro.';
+      }
+    }
+  }
   var puoData = S.role==='admin' && !op.undone && !op.isUndo &&
     op.id && String(op.id).indexOf('OP')===0 &&
     ['dirty','pickup','delivery'].indexOf(op.kind)>=0;
@@ -2477,13 +2507,40 @@ function opSheet(id){
     (puoData?'<button class="btn btn-s btn-xl" id="opdate-btn">'+ic('cal',20)+' Correggi la data</button>'+
       '<div class="fs13 dim">Serve quando registri al posto di Matteo un ritiro o una consegna '+
       'avvenuti il giorno prima.</div>':'')+
-    (op.undoable?'<button class="btn btn-s btn-xl" data-act="undo-op" data-b="'+esc(op.id)+'">'+ic('undo',20)+' Annulla questa operazione</button>':'')+
-    (op.kind==='clean'&&!op.undone?'<button class="btn btn-s" data-act="move-decl" data-b="'+esc(op.id)+'">'+
+    (puoUndo?'<button class="btn btn-s btn-xl" data-act="undo-op" data-b="'+esc(op.id)+'">'+ic('undo',20)+' Annulla questa operazione</button>':'')+
+    (notaUndo?'<div class="fs13 dim">'+esc(notaUndo)+'</div>':'')+
+    (S.role==='admin'&&op.kind==='clean'&&!op.undone?'<button class="btn btn-s" data-act="move-decl" data-b="'+esc(op.id)+'">'+
       "Sposta all'altra casa</button><div class=\"fs13 dim\">Da usare se Said ha dichiarato i pezzi sulla casa sbagliata.</div>":''),
     {after:function(){
       var b=document.getElementById('opdate-btn');
       if(b)b.onclick=function(){setOpDateSheet(op);};
     }});
+}
+/* Conferma prima di annullare dal Registro. Il tasto sta in fondo alla scheda
+   dell'operazione, dove il pollice arriva scorrendo: senza questo passaggio si
+   sposterebbe soltanto il tocco involontario da una schermata all'altra. Il testo
+   dice dove tornano i pezzi, casa e quantita' comprese. */
+var UNDO_EFFETTO={
+  clean:'I pezzi tornano "In lavanderia" e il costo maturato viene stornato.',
+  dirty:'I pezzi tornano com\'erano prima della conta.',
+  pickup:'I pezzi tornano "Sporco", quindi in casa.',
+  delivery:'I pezzi tornano "Pronto per ritiro", quindi da Said.'
+};
+function undoOpSheet(id){
+  var op=null;(S.ops||[]).forEach(function(o){
+    if(String(o.id)===String(id)||String(o.key)===String(id))op=o;});
+  if(!op||!op.id)return;
+  var k=KINDS[op.kind]||KINDS.other;
+  closeSheet();
+  sheet('Annullo questa operazione?',
+    '<div class="card pad stack g6"><div class="b7 fs18">'+esc(k.l)+' · '+esc(op.prop||'—')+'</div>'+
+      '<div class="fs14 muted">'+esc(op.ts||'')+' · '+pz(op.pieces||0)+'</div></div>'+
+    '<div class="fs18" style="line-height:1.35">Stai per annullare <b>'+pz(op.pieces||0)+
+      '</b> su <b>'+esc(op.prop||'—')+'</b>. Confermi?</div>'+
+    '<div class="note">'+esc(UNDO_EFFETTO[op.kind]||'I pezzi tornano allo stato precedente.')+
+      '\nL\'operazione resta nel Registro, segnata come annullata.</div>'+
+    '<button class="btn btn-p btn-xl" data-act="undo-op-go" data-b="'+esc(op.id)+'">Sì, annulla</button>'+
+    '<button class="btn btn-s" data-act="close-sheet">No, torno indietro</button>');
 }
 /* Correzione della data di un'operazione. Cambia SOLO il giorno scritto nel
    registro: inventario, quantita' e batch id restano quelli, quindi l'annullo
@@ -2683,9 +2740,9 @@ document.addEventListener('click',function(e){
     case 'back-pick': S.step='pick';render();break;
     case 'inc': DR()[d.i]=(DR()[d.i]||0)+1;render();break;
     case 'dec': DR()[d.i]=Math.max(0,(DR()[d.i]||0)-1);render();break;
-    case 'save-dirty': chiediConferma('save-dirty-go','registrando');break;
+    case 'save-dirty': chiediConferma('save-dirty-go','registrare','sporchi','registra');break;
     case 'save-dirty-go': saveDirty();break;
-    case 'save-clean': chiediConferma('save-clean-go','dichiarando');break;
+    case 'save-clean': chiediConferma('save-clean-go','dichiarare','puliti','dichiaro');break;
     case 'save-clean-go': saveClean();break;
     case 'pickup': closeSheet();S.giroFlag=false;S.giroChi=null;doPickup(d.h);break;
     case 'deliver': closeSheet();S.giroFlag=false;S.giroChi=null;doDeliver(d.h);break;
@@ -2935,7 +2992,8 @@ document.addEventListener('click',function(e){
       }).catch(writeFail('Non salvato'));
       break;}
     case 'op': if(d.b)opSheet(d.b);break;
-    case 'undo-op':{
+    case 'undo-op': undoOpSheet(d.b); break;
+    case 'undo-op-go':{
       var ob=d.b;closeSheet();
       api('undoOp',ob,S.role).then(function(r){
         if(r&&r.ok===false)throw new Error(errIt(r));
