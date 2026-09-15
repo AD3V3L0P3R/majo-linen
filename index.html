@@ -1434,26 +1434,36 @@ function viewConto(){
 }
 
 /* ══════════════ SAID — INCASSI ══════════════ */
+/* Sola lettura. Il saldo lo registra SOLO l'admin: qui Said vede quanto ha
+   maturato e qual è stato l'ultimo pagamento registrato, e basta.
+   Il bottone "Ho ricevuto tutto" è stato rimosso il 15/09/2026: chiamava
+   settleCosts e chiudeva le righe come pagate anche senza che i soldi
+   fossero usciti. */
 function viewIncassi(){
   var c=S.cost||{},bh=c.byHouse||{},rows=c.rows||[];
   var mine=(S.sup&&S.sup.Said)||null;
+  var dovuto=c.totalDue||0;
   return '<div class="stack g14">'+
     '<div class="card pad stack g12">'+
       '<div class="fs13 dim b">DA RICEVERE</div>'+
-      '<div class="big num" style="color:var(--acc)">'+eur0(c.totalDue||0)+'</div>'+
+      '<div class="big num" style="color:var(--acc)">'+eur0(dovuto)+'</div>'+
       '<div class="wrap">'+HOUSES.map(function(p){
         var h=bh[p]||{};return '<span class="chip"><span class="dot" style="background:var(--'+p.toLowerCase()+')"></span>'+
         p+' '+eur0(h.due||0)+' · '+pz(h.pieces||0)+'</span>';}).join('')+'</div>'+
-      ((c.totalDue||0)>0?
-        '<button class="btn btn-p btn-xl" data-act="settle-lav" data-p="ALL">Ho ricevuto tutto ('+eur0(c.totalDue)+')</button>'+
-        '<div class="hint">Premilo <b>solo dopo</b> aver ricevuto i soldi: azzera quello che ti è dovuto. '+
-        'Hai 30 secondi per annullare.</div>'+
-        '<div class="wrap">'+HOUSES.filter(function(p){return (bh[p]||{}).due>0;}).map(function(p){
-          return '<button class="pill" data-act="settle-lav" data-p="'+p+'">Ricevuto solo '+p+' · '+eur0(bh[p].due)+'</button>';}).join('')+'</div>'
-        :'<div class="note ok">Tutto saldato. Non hai nulla in sospeso.</div>')+
+      (dovuto>0
+        ? '<div class="hint">È quello che hai maturato e che non ti è ancora stato pagato. '+
+          'Il pagamento lo registra Alessandro quando ti consegna i soldi: da qui non '+
+          'devi confermare niente. Se hai ricevuto un pagamento e non lo vedi qui sotto, '+
+          'segnalalo ad Alessandro.</div>'
+        : '<div class="note ok">Non hai nulla in sospeso.</div>')+
     '</div>'+
-    (c.lastSettlement?'<div class="card pad between"><div><div class="fs13 dim">Ultimo pagamento ricevuto</div>'+
-      '<div class="b fs15">'+esc(c.lastSettlement.label||'')+'</div></div><div class="b7 num">'+eur0(c.lastSettlement.amount)+'</div></div>':'')+
+    '<div class="card pad between">'+
+      '<div><div class="fs13 dim">Ultimo pagamento registrato</div>'+
+      '<div class="b fs15">'+(c.lastSettlement
+        ? esc(c.lastSettlement.label||'')
+        : 'Nessun pagamento ancora registrato')+'</div></div>'+
+      '<div class="b7 num">'+(c.lastSettlement?eur0(c.lastSettlement.amount):'—')+'</div>'+
+    '</div>'+
     (mine&&Math.abs(mine.dovuto||0)>0.001?'<div class="card pad between"><div><div class="fs13 dim">Altre voci a tuo favore</div>'+
       '<div class="fs14 muted">'+(mine.voci||0)+' voci registrate da Alessandro</div></div>'+
       '<div class="b7 num">'+eur0(mine.dovuto)+'</div></div>':'')+
@@ -1465,7 +1475,7 @@ function viewIncassi(){
       :'<div class="card pad muted fs15">Nessuna voce in sospeso.</div>')+
   '</div>';
 }
-/* Un solo punto di scrittura del giro: lo chiama il tasto in Da fare, la
+  /* Un solo punto di scrittura del giro: lo chiama il tasto in Da fare, la
    conferma di ritiro e consegna, e l'assegnazione dal pannello admin. */
 function segnaGiro(f,casa,data,admin,silenzioso){
   return api('registraGiroBiancheria',f,casa,data||'',!!admin).then(function(r){
